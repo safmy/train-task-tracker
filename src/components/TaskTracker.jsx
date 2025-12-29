@@ -4,8 +4,8 @@ import { Check, Clock, Circle, X, Upload, Train, AlertCircle } from 'lucide-reac
 import * as XLSX from 'xlsx'
 
 function TaskTracker() {
-  const [units, setUnits] = useState([])
-  const [selectedUnit, setSelectedUnit] = useState(null)
+  const [trains, setTrains] = useState([]) // Grouped by train_name
+  const [selectedTrain, setSelectedTrain] = useState(null)
   const [cars, setCars] = useState([])
   const [teams, setTeams] = useState([])
   const [carTypes, setCarTypes] = useState([])
@@ -29,10 +29,10 @@ function TaskTracker() {
   }, [])
 
   useEffect(() => {
-    if (selectedUnit) {
-      loadCarsForUnit(selectedUnit.id)
+    if (selectedTrain) {
+      loadCarsForTrain(selectedTrain)
     }
-  }, [selectedUnit])
+  }, [selectedTrain])
 
   const loadData = async () => {
     setLoading(true)
@@ -43,12 +43,28 @@ function TaskTracker() {
         supabase.from('car_types').select('*').order('name')
       ])
 
-      if (unitsRes.data) setUnits(unitsRes.data)
       if (teamsRes.data) setTeams(teamsRes.data)
       if (carTypesRes.data) setCarTypes(carTypesRes.data)
 
-      if (unitsRes.data && unitsRes.data.length > 0) {
-        setSelectedUnit(unitsRes.data[0])
+      // Group units by train_name to form complete trains
+      if (unitsRes.data) {
+        const trainGroups = {}
+        unitsRes.data.forEach(unit => {
+          const trainName = unit.train_name || unit.unit_number
+          if (!trainGroups[trainName]) {
+            trainGroups[trainName] = {
+              name: trainName,
+              units: []
+            }
+          }
+          trainGroups[trainName].units.push(unit)
+        })
+        const trainList = Object.values(trainGroups)
+        setTrains(trainList)
+
+        if (trainList.length > 0) {
+          setSelectedTrain(trainList[0])
+        }
       }
     } catch (error) {
       console.error('Error loading data:', error)
@@ -56,23 +72,42 @@ function TaskTracker() {
     setLoading(false)
   }
 
-  const loadCarsForUnit = async (unitId) => {
+  const loadCarsForTrain = async (train) => {
     try {
+      // Get all unit IDs for this train
+      const unitIds = train.units.map(u => u.id)
+
       const { data: carsData } = await supabase
         .from('cars')
-        .select('*, car_types(*), task_completions(*, teams(*))')
-        .eq('unit_id', unitId)
-        .order('car_number')
+        .select('*, car_types(*), train_units(*), task_completions(*, teams(*))')
+        .in('unit_id', unitIds)
 
       if (carsData) {
-        setCars(carsData)
+        // Sort cars by category (3 CAR first, then 4 CAR) and then by type name
+        const sortOrder = {
+          'DM 3 CAR': 1,
+          'Trailer 3 Car': 2,
+          'UNDM 3 CAR': 3,
+          'DM 4 Car': 4,
+          'Trailer 4 Car': 5,
+          'Special Trailer 4 Car': 6,
+          'UNDM 4 Car': 7
+        }
+
+        const sortedCars = carsData.sort((a, b) => {
+          const orderA = sortOrder[a.car_types?.name] || 99
+          const orderB = sortOrder[b.car_types?.name] || 99
+          return orderA - orderB
+        })
+
+        setCars(sortedCars)
         // Flatten all completions
-        const allCompletions = carsData.flatMap(c => c.task_completions || [])
+        const allCompletions = sortedCars.flatMap(c => c.task_completions || [])
         setTaskCompletions(allCompletions)
 
         // Auto-select first car
-        if (carsData.length > 0 && !selectedCar) {
-          setSelectedCar(carsData[0])
+        if (sortedCars.length > 0 && !selectedCar) {
+          setSelectedCar(sortedCars[0])
         }
       }
     } catch (error) {
@@ -132,7 +167,7 @@ function TaskTracker() {
         .update(payload)
         .eq('id', selectedTask.id)
 
-      await loadCarsForUnit(selectedUnit.id)
+      await loadCarsForTrain(selectedTrain)
       setModalOpen(false)
     } catch (error) {
       console.error('Error saving completion:', error)
@@ -201,12 +236,22 @@ function TaskTracker() {
 
           let completedAt = null
           if (dateVal) {
-            if (typeof dateVal === 'number') {
-              // Excel date serial number
-              const date = new Date((dateVal - 25569) * 86400 * 1000)
-              completedAt = date.toISOString()
-            } else if (typeof dateVal === 'string') {
-              completedAt = new Date(dateVal).toISOString()
+            try {
+              if (typeof dateVal === 'number') {
+                // Excel date serial number
+                const date = new Date((dateVal - 25569) * 86400 * 1000)
+                if (!isNaN(date.getTime())) {
+                  completedAt = date.toISOString()
+                }
+              } else if (typeof dateVal === 'string' && dateVal.trim()) {
+                const date = new Date(dateVal)
+                if (!isNaN(date.getTime())) {
+                  completedAt = date.toISOString()
+                }
+              }
+            } catch (e) {
+              // Invalid date, leave as null
+              console.log('Invalid date value:', dateVal)
             }
           }
 
@@ -232,6 +277,10 @@ function TaskTracker() {
       // Now sync to database
       setUploadStatus({ type: 'info', message: 'Syncing to database...' })
 
+      // Generate train_name from all unit numbers in this file
+      const unitNumbers = Object.keys(parsedData).sort()
+      const trainName = `Train ${unitNumbers.map(u => u.slice(-3)).join('-')}`
+
       for (const [unitNumber, unitData] of Object.entries(parsedData)) {
         // Check if unit exists
         let { data: existingUnit } = await supabase
@@ -243,11 +292,16 @@ function TaskTracker() {
         let unitId
         if (existingUnit) {
           unitId = existingUnit.id
+          // Update train_name for existing unit
+          await supabase
+            .from('train_units')
+            .update({ train_name: trainName })
+            .eq('id', unitId)
         } else {
-          // Create new unit
+          // Create new unit with train_name
           const { data: newUnit } = await supabase
             .from('train_units')
-            .insert({ unit_number: unitNumber })
+            .insert({ unit_number: unitNumber, train_name: trainName })
             .select()
             .single()
           unitId = newUnit.id
@@ -367,57 +421,74 @@ function TaskTracker() {
         )}
       </div>
 
-      {/* Unit Selector */}
-      {units.length > 0 && (
+      {/* Train Selector */}
+      {trains.length > 0 && (
         <div className="unit-selector">
-          {units.map(unit => (
+          {trains.map(train => (
             <button
-              key={unit.id}
-              className={`unit-btn ${selectedUnit?.id === unit.id ? 'active' : ''}`}
+              key={train.name}
+              className={`unit-btn ${selectedTrain?.name === train.name ? 'active' : ''}`}
               onClick={() => {
-                setSelectedUnit(unit)
+                setSelectedTrain(train)
                 setSelectedCar(null)
               }}
             >
               <Train size={20} />
-              <span>Unit {unit.unit_number}</span>
+              <span>{train.name}</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.5rem' }}>
+                ({train.units.map(u => u.unit_number).join(' + ')})
+              </span>
             </button>
           ))}
         </div>
       )}
 
       {/* Visual Train */}
-      {selectedUnit && cars.length > 0 && (
+      {selectedTrain && cars.length > 0 && (
         <div className="train-visual">
           <div className="train-container">
             {cars.map((car, idx) => {
               const progress = getCarProgress(car)
               const isSelected = selectedCar?.id === car.id
+              const is3Car = car.car_types?.category === '3 CAR'
+              // Add separator between 3 CAR and 4 CAR units
+              const showSeparator = idx > 0 && is3Car === false && cars[idx - 1]?.car_types?.category === '3 CAR'
 
               return (
-                <div
-                  key={car.id}
-                  className={`train-car ${isSelected ? 'selected' : ''}`}
-                  onClick={() => setSelectedCar(car)}
-                  style={{
-                    borderColor: isSelected ? '#3B82F6' : getCarColor(progress.percent)
-                  }}
-                >
+                <div key={car.id} style={{ display: 'contents' }}>
+                  {showSeparator && (
+                    <div style={{
+                      width: '4px',
+                      height: '100px',
+                      background: 'linear-gradient(180deg, var(--primary) 0%, var(--bg-card) 100%)',
+                      borderRadius: '2px',
+                      margin: '10px 8px',
+                      alignSelf: 'center'
+                    }} />
+                  )}
                   <div
-                    className="car-progress-fill"
+                    className={`train-car ${isSelected ? 'selected' : ''}`}
+                    onClick={() => setSelectedCar(car)}
                     style={{
-                      width: `${progress.percent}%`,
-                      backgroundColor: getCarColor(progress.percent)
+                      borderColor: isSelected ? '#3B82F6' : getCarColor(progress.percent)
                     }}
-                  />
-                  <div className="car-content">
-                    <div className="car-type">{car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}</div>
-                    <div className="car-number">#{car.car_number}</div>
-                    <div className="car-stats">{progress.completed}/{progress.total}</div>
-                    <div className="car-percent">{progress.percent}%</div>
+                  >
+                    <div
+                      className="car-progress-fill"
+                      style={{
+                        width: `${progress.percent}%`,
+                        backgroundColor: getCarColor(progress.percent)
+                      }}
+                    />
+                    <div className="car-content">
+                      <div className="car-type">{car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}</div>
+                      <div className="car-number">#{car.car_number}</div>
+                      <div className="car-stats">{progress.completed}/{progress.total}</div>
+                      <div className="car-percent">{progress.percent}%</div>
+                    </div>
+                    {idx === 0 && <div className="train-front" />}
+                    {idx === cars.length - 1 && <div className="train-back" />}
                   </div>
-                  {idx === 0 && <div className="train-front" />}
-                  {idx === cars.length - 1 && <div className="train-back" />}
                 </div>
               )
             })}
@@ -482,10 +553,10 @@ function TaskTracker() {
       )}
 
       {/* Empty State */}
-      {units.length === 0 && (
+      {trains.length === 0 && (
         <div className="empty-state">
           <Train size={64} />
-          <h3>No Train Units</h3>
+          <h3>No Trains</h3>
           <p>Upload an Excel file to import train data</p>
         </div>
       )}
