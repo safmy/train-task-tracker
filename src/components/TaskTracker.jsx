@@ -761,86 +761,24 @@ function TaskTracker() {
         style={{ display: 'none' }}
       />
 
-      {/* Upload Status and Filters */}
-      <div className="upload-section" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        {uploading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
-            <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
-            <span>Uploading...</span>
-          </div>
-        )}
+      {/* Upload Status */}
+      {(uploading || uploadStatus) && (
+        <div className="upload-section" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {uploading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
+              <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
+              <span>Uploading...</span>
+            </div>
+          )}
 
-        {uploadStatus && (
-          <div className={`upload-status ${uploadStatus.type}`}>
-            <AlertCircle size={16} />
-            {uploadStatus.message}
-          </div>
-        )}
-
-        {/* Filter Controls */}
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginLeft: 'auto' }}>
-          <Filter size={18} style={{ color: 'var(--text-muted)' }} />
-
-          {/* Phase Filter */}
-          <select
-            value={phaseFilter}
-            onChange={(e) => setPhaseFilter(e.target.value)}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-card)',
-              color: 'var(--text)',
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              minWidth: '120px'
-            }}
-          >
-            <option value="all">All Phases</option>
-            {selectedCar?.task_completions && getUniquePhases(selectedCar.task_completions).map(phase => (
-              <option key={phase} value={phase}>{phase}</option>
-            ))}
-          </select>
-
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-card)',
-              color: 'var(--text)',
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              minWidth: '130px'
-            }}
-          >
-            <option value="all">All Tasks</option>
-            <option value="completed">Completed</option>
-            <option value="in_progress">In Progress</option>
-            <option value="pending">Not Started</option>
-          </select>
-
-          {(phaseFilter !== 'all' || statusFilter !== 'all') && (
-            <button
-              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); }}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '0.5rem',
-                border: '1px solid var(--border)',
-                background: 'transparent',
-                color: 'var(--text-muted)',
-                fontSize: '0.75rem',
-                cursor: 'pointer'
-              }}
-            >
-              Clear Filters
-            </button>
+          {uploadStatus && (
+            <div className={`upload-status ${uploadStatus.type}`}>
+              <AlertCircle size={16} />
+              {uploadStatus.message}
+            </div>
           )}
         </div>
-      </div>
+      )}
 
       {/* Train Selector */}
       {trains.length > 0 && (
@@ -1335,8 +1273,11 @@ function TaskTracker() {
               </div>
             </div>
 
-            {/* Text/Regex Filter */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* All Filters */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <Filter size={16} style={{ color: 'var(--text-muted)' }} />
+
+              {/* Text/Regex Filter */}
               <input
                 type="text"
                 value={taskTextFilter}
@@ -1350,12 +1291,55 @@ function TaskTracker() {
                   background: 'var(--bg-card)',
                   color: 'var(--text)',
                   fontSize: '0.875rem',
-                  minWidth: '200px'
+                  minWidth: '180px'
                 }}
               />
-              {taskTextFilter && (
+
+              {/* Phase Filter */}
+              <select
+                value={phaseFilter}
+                onChange={(e) => setPhaseFilter(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text)',
+                  fontSize: '0.875rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">All Phases</option>
+                {selectedCar?.task_completions && getUniquePhases(selectedCar.task_completions).map(phase => (
+                  <option key={phase} value={phase}>{phase}</option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text)',
+                  fontSize: '0.875rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">All Tasks</option>
+                <option value="completed">Completed</option>
+                <option value="in_progress">In Progress</option>
+                <option value="pending">Not Started</option>
+              </select>
+
+              {(taskTextFilter || phaseFilter !== 'all' || statusFilter !== 'all') && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setTaskTextFilter(''); }}
+                  onClick={(e) => { e.stopPropagation(); setTaskTextFilter(''); setPhaseFilter('all'); setStatusFilter('all'); }}
                   style={{
                     padding: '0.25rem 0.5rem',
                     borderRadius: '0.375rem',
