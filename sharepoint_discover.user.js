@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Train Tracker - SharePoint File Discovery
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      2.0
 // @description  Discover all WorktoSheets files across SharePoint folders
 // @author       Train Tracker
 // @match        https://*.sharepoint.com/*
@@ -14,16 +14,11 @@
 (function() {
     'use strict';
 
-    // Configuration
-    const ROOT_FOLDER = 'Train Records';
-    const WORK_SHEETS_FOLDER_PATTERN = /work\s*to\s*sheets/i;
-    const FILE_PATTERN = /worktosheet.*\.xls[mx]$/i;
-
     // State
     let discoveredFiles = [];
-    let visitedFolders = new Set();
-    let isDiscovering = false;
-    let discoveryLog = [];
+    let foldersToVisit = [];
+    let currentPhase = null;
+    let isScanning = false;
 
     // Create UI
     function createUI() {
@@ -35,8 +30,8 @@
                     position: fixed;
                     top: 20px;
                     right: 20px;
-                    width: 450px;
-                    max-height: 80vh;
+                    width: 400px;
+                    max-height: 85vh;
                     background: #1e293b;
                     border: 1px solid #475569;
                     border-radius: 12px;
@@ -57,9 +52,6 @@
                 #tt-discover-panel .header h3 {
                     margin: 0;
                     font-size: 14px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
                 }
                 #tt-discover-panel .status-badge {
                     font-size: 10px;
@@ -67,7 +59,7 @@
                     border-radius: 10px;
                     background: #3B82F6;
                 }
-                #tt-discover-panel .status-badge.discovering {
+                #tt-discover-panel .status-badge.scanning {
                     background: #F59E0B;
                     animation: pulse 1s infinite;
                 }
@@ -80,12 +72,12 @@
                 }
                 #tt-discover-panel .body {
                     padding: 16px;
-                    max-height: 50vh;
+                    max-height: 55vh;
                     overflow-y: auto;
                 }
                 #tt-discover-panel .stats {
                     display: grid;
-                    grid-template-columns: repeat(3, 1fr);
+                    grid-template-columns: repeat(2, 1fr);
                     gap: 10px;
                     margin-bottom: 16px;
                 }
@@ -111,8 +103,9 @@
                     border-radius: 8px;
                     font-size: 11px;
                     font-family: monospace;
-                    max-height: 200px;
+                    max-height: 150px;
                     overflow-y: auto;
+                    margin-bottom: 16px;
                 }
                 #tt-discover-panel .log-entry {
                     margin-bottom: 4px;
@@ -144,10 +137,6 @@
                 #tt-discover-panel .btn-primary:hover {
                     background: #2563EB;
                 }
-                #tt-discover-panel .btn-primary:disabled {
-                    background: #475569;
-                    cursor: not-allowed;
-                }
                 #tt-discover-panel .btn-success {
                     background: #10B981;
                     color: white;
@@ -156,63 +145,86 @@
                     background: #475569;
                     color: white;
                 }
+                #tt-discover-panel .btn-warning {
+                    background: #F59E0B;
+                    color: white;
+                }
                 #tt-discover-panel .file-list {
-                    margin-top: 16px;
+                    margin-top: 8px;
                 }
                 #tt-discover-panel .file-item {
                     background: #334155;
-                    padding: 10px;
+                    padding: 8px 10px;
                     border-radius: 6px;
-                    margin-bottom: 8px;
+                    margin-bottom: 6px;
                     font-size: 11px;
                 }
                 #tt-discover-panel .file-item .train-num {
                     color: #3B82F6;
                     font-weight: 700;
-                    font-size: 14px;
-                }
-                #tt-discover-panel .file-item .path {
-                    color: #94a3b8;
-                    font-size: 10px;
-                    word-break: break-all;
+                    font-size: 13px;
                 }
                 #tt-discover-panel .file-item .units {
                     color: #10B981;
+                    margin-left: 8px;
                 }
-                #tt-discover-panel .instructions {
+                #tt-discover-panel .file-item .phase {
+                    color: #94a3b8;
+                    margin-left: 8px;
+                }
+                #tt-discover-panel .folder-queue {
                     background: #334155;
-                    padding: 12px;
+                    padding: 10px;
                     border-radius: 8px;
+                    margin-bottom: 12px;
+                }
+                #tt-discover-panel .folder-queue h4 {
+                    margin: 0 0 8px 0;
                     font-size: 12px;
-                    margin-bottom: 16px;
+                    color: #94a3b8;
                 }
-                #tt-discover-panel .instructions ol {
-                    margin: 8px 0 0 16px;
-                    padding: 0;
-                }
-                #tt-discover-panel .instructions li {
+                #tt-discover-panel .folder-queue .folder-item {
+                    font-size: 11px;
+                    padding: 4px 8px;
                     margin-bottom: 4px;
+                    background: #1e293b;
+                    border-radius: 4px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                #tt-discover-panel .folder-queue .folder-item.current {
+                    background: #3B82F6;
+                    color: white;
+                }
+                #tt-discover-panel .folder-queue .folder-item .go-btn {
+                    background: #10B981;
+                    color: white;
+                    border: none;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    cursor: pointer;
+                }
+                #tt-discover-panel .current-location {
+                    background: #334155;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    margin-bottom: 12px;
+                    word-break: break-all;
+                }
+                #tt-discover-panel .current-location strong {
+                    color: #3B82F6;
                 }
             </style>
             <div class="header">
-                <h3>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/>
-                        <path d="m21 21-4.35-4.35"/>
-                    </svg>
-                    File Discovery
-                </h3>
+                <h3>Train Tracker Discovery v2</h3>
                 <span class="status-badge" id="tt-status">Ready</span>
             </div>
             <div class="body">
-                <div class="instructions">
-                    <strong>How to use:</strong>
-                    <ol>
-                        <li>Navigate to the <strong>Train Records</strong> folder in SharePoint</li>
-                        <li>Click <strong>Start Discovery</strong> to begin scanning</li>
-                        <li>The script will traverse all Phase folders automatically</li>
-                        <li>Once complete, copy the file list to save it</li>
-                    </ol>
+                <div class="current-location" id="tt-location">
+                    <strong>Location:</strong> <span id="tt-path">Loading...</span>
                 </div>
                 <div class="stats">
                     <div class="stat-box">
@@ -220,55 +232,40 @@
                         <div class="stat-label">Files Found</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-value" id="tt-folders-count">0</div>
-                        <div class="stat-label">Folders Scanned</div>
+                        <div class="stat-value" id="tt-pending-count">0</div>
+                        <div class="stat-label">Folders Pending</div>
                     </div>
-                    <div class="stat-box">
-                        <div class="stat-value" id="tt-phases-count">0</div>
-                        <div class="stat-label">Phases</div>
-                    </div>
+                </div>
+                <div class="folder-queue" id="tt-queue-section" style="display: none;">
+                    <h4>Folders to Visit:</h4>
+                    <div id="tt-folder-queue"></div>
                 </div>
                 <div class="log" id="tt-log"></div>
                 <div class="file-list" id="tt-file-list"></div>
             </div>
             <div class="footer">
-                <button class="btn-primary" id="tt-start">Start Discovery</button>
+                <button class="btn-primary" id="tt-scan">Scan Page</button>
+                <button class="btn-warning" id="tt-auto" title="Auto-traverse all folders">Auto Traverse</button>
                 <button class="btn-success" id="tt-copy" disabled>Copy Results</button>
                 <button class="btn-secondary" id="tt-export" disabled>Export JSON</button>
-                <button class="btn-secondary" id="tt-load">Load Saved</button>
-                <button class="btn-secondary" id="tt-close">Minimize</button>
+                <button class="btn-secondary" id="tt-clear">Clear</button>
             </div>
         `;
         document.body.appendChild(panel);
 
-        // Minimized button
-        const minBtn = document.createElement('button');
-        minBtn.id = 'tt-min-btn';
-        minBtn.innerHTML = '🔍';
-        minBtn.style.cssText = `
-            position: fixed; top: 20px; right: 20px; width: 50px; height: 50px;
-            border-radius: 50%; background: #3B82F6; border: none; cursor: pointer;
-            font-size: 24px; z-index: 999998; display: none;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-        `;
-        document.body.appendChild(minBtn);
-
         // Event listeners
-        document.getElementById('tt-start').onclick = startDiscovery;
+        document.getElementById('tt-scan').onclick = scanCurrentPage;
+        document.getElementById('tt-auto').onclick = startAutoTraverse;
         document.getElementById('tt-copy').onclick = copyResults;
         document.getElementById('tt-export').onclick = exportJSON;
-        document.getElementById('tt-load').onclick = loadSaved;
-        document.getElementById('tt-close').onclick = () => {
-            panel.style.display = 'none';
-            minBtn.style.display = 'block';
-        };
-        minBtn.onclick = () => {
-            panel.style.display = 'block';
-            minBtn.style.display = 'none';
-        };
+        document.getElementById('tt-clear').onclick = clearAll;
 
-        // Load any previously saved data
+        // Load saved data
         loadSaved();
+        updateLocation();
+
+        // Auto-scan on page load
+        setTimeout(scanCurrentPage, 1500);
     }
 
     function log(msg, type = 'info') {
@@ -277,22 +274,39 @@
         entry.className = `log-entry ${type}`;
         entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
         logDiv.insertBefore(entry, logDiv.firstChild);
-
-        // Keep only last 100 entries
-        while (logDiv.children.length > 100) {
+        while (logDiv.children.length > 50) {
             logDiv.removeChild(logDiv.lastChild);
         }
-
-        discoveryLog.push({ time: new Date().toISOString(), msg, type });
         console.log(`[Discovery] ${msg}`);
     }
 
     function updateStats() {
         document.getElementById('tt-files-count').textContent = discoveredFiles.length;
-        document.getElementById('tt-folders-count').textContent = visitedFolders.size;
+        document.getElementById('tt-pending-count').textContent = foldersToVisit.length;
 
-        const phases = new Set(discoveredFiles.map(f => f.phase).filter(Boolean));
-        document.getElementById('tt-phases-count').textContent = phases.size;
+        const hasFiles = discoveredFiles.length > 0;
+        document.getElementById('tt-copy').disabled = !hasFiles;
+        document.getElementById('tt-export').disabled = !hasFiles;
+    }
+
+    function updateLocation() {
+        const pathSpan = document.getElementById('tt-path');
+        const url = new URL(window.location.href);
+
+        // Extract path from SharePoint URL
+        let path = 'Unknown';
+        const idParam = url.searchParams.get('id');
+        if (idParam) {
+            path = decodeURIComponent(idParam).split('/').slice(-3).join(' > ');
+        } else {
+            const pathMatch = url.pathname.match(/\/sites\/[^\/]+\/Shared%20Documents\/(.+)/);
+            if (pathMatch) {
+                path = decodeURIComponent(pathMatch[1]).replace(/\//g, ' > ');
+            }
+        }
+
+        pathSpan.textContent = path;
+        currentPhase = extractPhase(path);
     }
 
     function extractTrainNumber(text) {
@@ -336,269 +350,172 @@
         return m ? `Phase ${m[1]}` : null;
     }
 
-    // Get current folder contents from the page
-    function getCurrentFolderItems() {
+    // Get items from current page
+    function getPageItems() {
         const items = [];
         const rows = document.querySelectorAll('[data-automationid^="row-"]:not([data-automationid="row-header"])');
 
         rows.forEach(row => {
             const nameCell = row.querySelector('[data-automationid="field-LinkFilename"]');
-            const nameSpan = nameCell ? nameCell.querySelector('span[title]') : null;
-            const nameButton = nameCell ? nameCell.querySelector('button') : null;
-            const nameLink = nameCell ? nameCell.querySelector('a') : null;
+            if (!nameCell) return;
+
+            const nameSpan = nameCell.querySelector('span[title]');
+            if (!nameSpan) return;
+
+            const name = nameSpan.getAttribute('title') || nameSpan.textContent;
             const modifiedCell = row.querySelector('[data-automationid="field-Modified"]');
+            const modified = modifiedCell ? (modifiedCell.getAttribute('title') || modifiedCell.textContent) : '';
+
+            // Check if it's a file or folder
             const iconCell = row.querySelector('[data-automationid="field-DocIcon"]');
+            const hasXlsIcon = iconCell && iconCell.querySelector('img[alt*="xls"]');
+            const hasFolderIcon = iconCell && iconCell.querySelector('svg');
 
-            if (nameSpan || nameButton || nameLink) {
-                const textEl = nameSpan || nameButton || nameLink;
-                const name = textEl.getAttribute('title') || textEl.textContent;
-                const modified = modifiedCell ? (modifiedCell.getAttribute('title') || modifiedCell.textContent) : '';
+            const isExcel = hasXlsIcon || /\.xls[mx]$/i.test(name);
+            const isFolder = hasFolderIcon && !isExcel;
 
-                // Determine if folder or file - check multiple indicators
-                const hasFolderIcon = iconCell && (
-                    iconCell.querySelector('svg') ||
-                    iconCell.querySelector('i[data-icon-name="FabricFolder"]') ||
-                    iconCell.querySelector('[data-icon-name*="Folder"]')
-                );
-                const isExcel = name.toLowerCase().endsWith('.xlsx') ||
-                               name.toLowerCase().endsWith('.xlsm') ||
-                               (iconCell && iconCell.querySelector('img[alt*="xls"]'));
+            // Get the URL for this item
+            let itemUrl = null;
+            const currentUrl = new URL(window.location.href);
+            const currentId = currentUrl.searchParams.get('id') || '';
 
-                // If it's not an Excel file and doesn't have a file extension, treat as folder
-                const hasExtension = /\.[a-z]{2,4}$/i.test(name);
-                const isFolder = !hasExtension || !!hasFolderIcon;
-
-                // Get the best clickable element - prefer button or link, fallback to span
-                const clickElement = nameButton || nameLink || nameSpan;
-
-                items.push({
-                    name,
-                    modified,
-                    isFolder: isFolder && !isExcel,
-                    isExcel: !!isExcel,
-                    element: clickElement,
-                    row: row
-                });
+            if (isFolder) {
+                // Build folder URL
+                const basePath = currentId || decodeURIComponent(currentUrl.pathname.replace('/Forms/AllItems.aspx', ''));
+                itemUrl = new URL(window.location.href);
+                itemUrl.searchParams.set('id', basePath + '/' + encodeURIComponent(name));
             }
+
+            items.push({
+                name,
+                modified,
+                isFolder,
+                isExcel,
+                url: itemUrl ? itemUrl.href : window.location.href,
+                element: nameSpan
+            });
         });
 
         return items;
     }
 
-    // Get current URL path
-    function getCurrentPath() {
-        const url = new URL(window.location.href);
-        // SharePoint paths can be in different formats
-        const pathMatch = url.pathname.match(/\/sites\/[^\/]+\/Shared%20Documents\/(.+)/);
-        if (pathMatch) {
-            return decodeURIComponent(pathMatch[1]).replace(/\//g, ' > ');
-        }
-        return url.pathname;
-    }
+    // Scan current page for files and folders
+    function scanCurrentPage() {
+        log('Scanning current page...', 'info');
+        updateLocation();
 
-    // Navigate to a folder by clicking
-    async function navigateToFolder(item) {
-        return new Promise((resolve) => {
-            const element = item.element;
-            const row = item.row;
+        const items = getPageItems();
+        log(`Found ${items.length} items on page`, 'info');
 
-            try {
-                // Method 1: Double-click on the row (most reliable for SharePoint)
-                if (row) {
-                    const dblClickEvent = document.createEvent('MouseEvents');
-                    dblClickEvent.initEvent('dblclick', true, true);
-                    row.dispatchEvent(dblClickEvent);
-                }
+        let filesFound = 0;
+        let foldersFound = 0;
 
-                // Method 2: Also try clicking the element directly after a short delay
-                setTimeout(() => {
-                    if (element) {
-                        element.click();
-                        // Try double-click on element too
-                        setTimeout(() => element.click(), 50);
-                    }
-                }, 200);
-
-            } catch (e) {
-                console.log('Primary click method failed, trying alternatives', e);
-
-                // Method 3: Focus and Enter key
-                try {
-                    if (element) {
-                        element.focus();
-                        const enterEvent = new KeyboardEvent('keypress', {
-                            key: 'Enter',
-                            code: 'Enter',
-                            keyCode: 13,
-                            which: 13,
-                            bubbles: true
-                        });
-                        element.dispatchEvent(enterEvent);
-                    }
-                } catch (e2) {
-                    console.log('Enter key method also failed', e2);
-                }
-            }
-
-            // Wait for page to load
-            setTimeout(resolve, 3000);
-        });
-    }
-
-    // Navigate back
-    async function navigateBack() {
-        return new Promise((resolve) => {
-            const backBtn = document.querySelector('[data-automationid="up-button"]') ||
-                           document.querySelector('[aria-label="Up"]') ||
-                           document.querySelector('.ms-Breadcrumb-item:last-child');
-
-            if (backBtn) {
-                backBtn.click();
-                setTimeout(resolve, 1500);
-            } else {
-                window.history.back();
-                setTimeout(resolve, 2000);
-            }
-        });
-    }
-
-    // Wait for folder contents to load
-    async function waitForContent() {
-        return new Promise((resolve) => {
-            let attempts = 0;
-            const check = () => {
-                const rows = document.querySelectorAll('[data-automationid^="row-"]:not([data-automationid="row-header"])');
-                if (rows.length > 0 || attempts > 20) {
-                    setTimeout(resolve, 500);
-                } else {
-                    attempts++;
-                    setTimeout(check, 500);
-                }
-            };
-            check();
-        });
-    }
-
-    // Main discovery function
-    async function startDiscovery() {
-        if (isDiscovering) {
-            log('Discovery already in progress', 'warning');
-            return;
-        }
-
-        isDiscovering = true;
-        discoveredFiles = [];
-        visitedFolders = new Set();
-        discoveryLog = [];
-
-        document.getElementById('tt-status').textContent = 'Discovering...';
-        document.getElementById('tt-status').className = 'status-badge discovering';
-        document.getElementById('tt-start').disabled = true;
-        document.getElementById('tt-copy').disabled = true;
-        document.getElementById('tt-export').disabled = true;
-
-        log('Starting discovery...', 'info');
-
-        // Check if we're in Train Records or need to navigate there
-        const currentPath = getCurrentPath();
-        log(`Current path: ${currentPath}`, 'info');
-
-        try {
-            await scanCurrentFolder(currentPath, 0);
-        } catch (error) {
-            log(`Error during discovery: ${error.message}`, 'error');
-        }
-
-        // Complete
-        isDiscovering = false;
-        document.getElementById('tt-status').textContent = 'Complete';
-        document.getElementById('tt-status').className = 'status-badge complete';
-        document.getElementById('tt-start').disabled = false;
-        document.getElementById('tt-copy').disabled = false;
-        document.getElementById('tt-export').disabled = false;
-
-        log(`Discovery complete! Found ${discoveredFiles.length} files`, 'success');
-        updateStats();
-        displayFiles();
-        saveResults();
-    }
-
-    // Recursive folder scanner
-    async function scanCurrentFolder(path, depth) {
-        if (depth > 5) {
-            log(`Max depth reached at: ${path}`, 'warning');
-            return;
-        }
-
-        const folderKey = window.location.href;
-        if (visitedFolders.has(folderKey)) {
-            return;
-        }
-        visitedFolders.add(folderKey);
-
-        await waitForContent();
-        const items = getCurrentFolderItems();
-        log(`Scanning: ${path} (${items.length} items)`, 'info');
-        updateStats();
-
-        // Process files first
-        for (const item of items) {
-            if (!item.isFolder && FILE_PATTERN.test(item.name)) {
+        items.forEach(item => {
+            // Check for WorktoSheets files
+            if (item.isExcel && /worktosheet/i.test(item.name)) {
                 const fileInfo = {
                     name: item.name,
-                    path: path,
                     url: window.location.href,
                     modified: item.modified,
-                    trainNumber: extractTrainNumber(item.name) || extractTrainNumber(path),
+                    trainNumber: extractTrainNumber(item.name),
                     units: extractUnitNumbers(item.name),
-                    phase: extractPhase(path),
+                    phase: currentPhase || extractPhase(window.location.href),
                     discoveredAt: new Date().toISOString()
                 };
 
-                discoveredFiles.push(fileInfo);
-                log(`Found: T${fileInfo.trainNumber || '?'} - ${item.name}`, 'success');
-                updateStats();
+                // Check if already discovered
+                const exists = discoveredFiles.some(f => f.name === fileInfo.name && f.url === fileInfo.url);
+                if (!exists) {
+                    discoveredFiles.push(fileInfo);
+                    filesFound++;
+                    log(`Found: T${fileInfo.trainNumber || '?'} - ${item.name}`, 'success');
+                }
             }
-        }
 
-        // Then process folders
-        const foldersToVisit = items.filter(item => {
-            if (!item.isFolder) return false;
-            const name = item.name.toLowerCase();
+            // Queue relevant folders
+            if (item.isFolder) {
+                const name = item.name.toLowerCase();
+                const shouldVisit =
+                    /^phase\s*\d/i.test(item.name) ||  // Phase folders
+                    /^t\d+\s*[-–(]/i.test(item.name) ||  // T## folders (T01, T02, etc.)
+                    /work\s*to\s*sheets/i.test(item.name) ||  // Work to Sheets folders
+                    /05\s*work/i.test(item.name);  // 05 Work folders
 
-            // Priority folders to visit
-            if (name.includes('phase')) return true;
-            if (/^t\d+/.test(name)) return true;
-            if (WORK_SHEETS_FOLDER_PATTERN.test(name)) return true;
-
-            return false;
+                if (shouldVisit) {
+                    const exists = foldersToVisit.some(f => f.url === item.url);
+                    if (!exists) {
+                        foldersToVisit.push({
+                            name: item.name,
+                            url: item.url,
+                            phase: currentPhase || extractPhase(item.name)
+                        });
+                        foldersFound++;
+                    }
+                }
+            }
         });
 
-        for (const folder of foldersToVisit) {
-            log(`Entering folder: ${folder.name}`, 'info');
-
-            // Click to navigate - pass the whole folder item
-            await navigateToFolder(folder);
-            await waitForContent();
-
-            // Scan this folder
-            const newPath = path ? `${path} > ${folder.name}` : folder.name;
-            await scanCurrentFolder(newPath, depth + 1);
-
-            // Navigate back
-            await navigateBack();
-            await waitForContent();
-        }
+        log(`Added ${filesFound} files, ${foldersFound} folders to queue`, 'info');
+        updateStats();
+        displayFiles();
+        displayFolderQueue();
+        saveData();
     }
 
-    function displayFiles() {
-        const container = document.getElementById('tt-file-list');
-        if (discoveredFiles.length === 0) {
-            container.innerHTML = '<p style="color: #94a3b8; text-align: center;">No files discovered yet</p>';
+    // Auto traverse folders
+    async function startAutoTraverse() {
+        if (isScanning) {
+            log('Already traversing...', 'warning');
             return;
         }
 
-        // Sort by train number
+        if (foldersToVisit.length === 0) {
+            log('No folders in queue. Scan first!', 'warning');
+            return;
+        }
+
+        isScanning = true;
+        document.getElementById('tt-status').textContent = 'Traversing...';
+        document.getElementById('tt-status').className = 'status-badge scanning';
+
+        log('Starting auto-traverse...', 'info');
+
+        // Process next folder
+        await processNextFolder();
+    }
+
+    async function processNextFolder() {
+        if (foldersToVisit.length === 0) {
+            isScanning = false;
+            document.getElementById('tt-status').textContent = 'Complete';
+            document.getElementById('tt-status').className = 'status-badge complete';
+            log(`Discovery complete! Found ${discoveredFiles.length} files`, 'success');
+            saveData();
+            return;
+        }
+
+        const folder = foldersToVisit.shift();
+        log(`Navigating to: ${folder.name}`, 'info');
+        updateStats();
+        displayFolderQueue();
+
+        // Navigate to folder
+        window.location.href = folder.url;
+
+        // The page will reload, and the script will continue scanning
+        // We save state so it persists across page loads
+        GM_setValue('isAutoTraversing', true);
+        saveData();
+    }
+
+    // Display discovered files
+    function displayFiles() {
+        const container = document.getElementById('tt-file-list');
+        if (discoveredFiles.length === 0) {
+            container.innerHTML = '<div style="color: #94a3b8; text-align: center; font-size: 11px;">No files discovered yet</div>';
+            return;
+        }
+
         const sorted = [...discoveredFiles].sort((a, b) => {
             if (a.trainNumber && b.trainNumber) return a.trainNumber - b.trainNumber;
             if (a.trainNumber) return -1;
@@ -609,50 +526,98 @@
         container.innerHTML = sorted.map(f => `
             <div class="file-item">
                 <span class="train-num">T${f.trainNumber || '?'}</span>
-                <span class="units">${f.units.join(' + ') || 'Unknown units'}</span>
-                ${f.phase ? `<span style="color: #94a3b8; margin-left: 8px;">${f.phase}</span>` : ''}
-                <div class="path">${f.path}</div>
-                <div style="color: #64748b; font-size: 10px;">Modified: ${f.modified}</div>
+                <span class="units">${f.units.join(' + ') || '?'}</span>
+                <span class="phase">${f.phase || ''}</span>
+                <div style="color: #64748b; font-size: 10px; margin-top: 4px;">${f.name}</div>
             </div>
         `).join('');
     }
 
-    function saveResults() {
-        const data = {
-            files: discoveredFiles,
-            discoveredAt: new Date().toISOString(),
-            folderCount: visitedFolders.size
-        };
-        GM_setValue('discoveredFiles', JSON.stringify(data));
-        log('Results saved to storage', 'success');
+    // Display folder queue
+    function displayFolderQueue() {
+        const section = document.getElementById('tt-queue-section');
+        const container = document.getElementById('tt-folder-queue');
+
+        if (foldersToVisit.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+
+        // Show first 10 folders
+        const toShow = foldersToVisit.slice(0, 10);
+        container.innerHTML = toShow.map((f, i) => `
+            <div class="folder-item ${i === 0 ? 'current' : ''}">
+                <span>${f.name}</span>
+                <button class="go-btn" onclick="window.location.href='${f.url}'">Go</button>
+            </div>
+        `).join('');
+
+        if (foldersToVisit.length > 10) {
+            container.innerHTML += `<div style="color: #94a3b8; font-size: 10px; padding: 4px;">...and ${foldersToVisit.length - 10} more</div>`;
+        }
+    }
+
+    // Save/Load functions
+    function saveData() {
+        GM_setValue('discoveredFiles', JSON.stringify(discoveredFiles));
+        GM_setValue('foldersToVisit', JSON.stringify(foldersToVisit));
     }
 
     function loadSaved() {
         try {
-            const saved = GM_getValue('discoveredFiles', null);
-            if (saved) {
-                const data = JSON.parse(saved);
-                discoveredFiles = data.files || [];
-                log(`Loaded ${discoveredFiles.length} saved files from ${new Date(data.discoveredAt).toLocaleString()}`, 'info');
-                updateStats();
-                displayFiles();
+            const savedFiles = GM_getValue('discoveredFiles', '[]');
+            const savedFolders = GM_getValue('foldersToVisit', '[]');
+            discoveredFiles = JSON.parse(savedFiles);
+            foldersToVisit = JSON.parse(savedFolders);
 
-                if (discoveredFiles.length > 0) {
-                    document.getElementById('tt-copy').disabled = false;
-                    document.getElementById('tt-export').disabled = false;
-                }
+            if (discoveredFiles.length > 0) {
+                log(`Loaded ${discoveredFiles.length} saved files`, 'info');
+            }
+            if (foldersToVisit.length > 0) {
+                log(`${foldersToVisit.length} folders pending`, 'info');
+            }
+
+            updateStats();
+            displayFiles();
+            displayFolderQueue();
+
+            // Check if we were auto-traversing
+            const wasTraversing = GM_getValue('isAutoTraversing', false);
+            if (wasTraversing && foldersToVisit.length > 0) {
+                GM_setValue('isAutoTraversing', false);
+                log('Continuing auto-traverse...', 'info');
+                setTimeout(() => {
+                    scanCurrentPage();
+                    setTimeout(startAutoTraverse, 2000);
+                }, 1500);
             }
         } catch (e) {
-            log('No saved data found', 'info');
+            console.error('Error loading saved data:', e);
+        }
+    }
+
+    function clearAll() {
+        if (confirm('Clear all discovered files and folder queue?')) {
+            discoveredFiles = [];
+            foldersToVisit = [];
+            GM_setValue('discoveredFiles', '[]');
+            GM_setValue('foldersToVisit', '[]');
+            GM_setValue('isAutoTraversing', false);
+            updateStats();
+            displayFiles();
+            displayFolderQueue();
+            log('Cleared all data', 'info');
         }
     }
 
     function copyResults() {
+        const header = 'Train\tUnits\tPhase\tFilename\tURL\n';
         const text = discoveredFiles.map(f =>
             `T${f.trainNumber || '?'}\t${f.units.join(' + ')}\t${f.phase || ''}\t${f.name}\t${f.url}`
         ).join('\n');
 
-        const header = 'Train\tUnits\tPhase\tFilename\tURL\n';
         GM_setClipboard(header + text);
         log('Results copied to clipboard!', 'success');
         alert(`Copied ${discoveredFiles.length} file locations to clipboard!`);
@@ -673,7 +638,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `worktosheets_locations_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `worktosheets_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
 
@@ -682,7 +647,7 @@
 
     // Initialize
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', createUI);
+        document.addEventListener('DOMContentLoaded', () => setTimeout(createUI, 1000));
     } else {
         setTimeout(createUI, 1000);
     }
