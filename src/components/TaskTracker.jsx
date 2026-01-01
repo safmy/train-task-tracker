@@ -54,12 +54,18 @@ function TaskTracker() {
           if (!trainGroups[trainName]) {
             trainGroups[trainName] = {
               name: trainName,
+              trainNumber: unit.train_number,
+              phase: unit.phase,
               units: []
             }
           }
           trainGroups[trainName].units.push(unit)
         })
-        const trainList = Object.values(trainGroups)
+        // Sort by train_number if available
+        const trainList = Object.values(trainGroups).sort((a, b) => {
+          if (a.trainNumber && b.trainNumber) return a.trainNumber - b.trainNumber
+          return a.name.localeCompare(b.name)
+        })
         setTrains(trainList)
 
         if (trainList.length > 0) {
@@ -174,6 +180,20 @@ function TaskTracker() {
     }
   }
 
+  // Extract train number from filename (e.g., "WorktosheetsV3 T33 - (Units 96021 & 96094).xlsm")
+  const extractTrainNumber = (filename) => {
+    const patterns = [
+      /T(\d+)\s*-/i,       // "T33 -" or "T1 -"
+      /T(\d+)\s*\(/i,      // "T33 ("
+      /Train\s*(\d+)/i,    // "Train 33"
+    ]
+    for (const pattern of patterns) {
+      const match = filename.match(pattern)
+      if (match) return parseInt(match[1], 10)
+    }
+    return null
+  }
+
   // Excel Upload Handler
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -181,6 +201,10 @@ function TaskTracker() {
 
     setUploading(true)
     setUploadStatus({ type: 'info', message: 'Reading Excel file...' })
+
+    // Extract train number from filename
+    const trainNumber = extractTrainNumber(file.name)
+    console.log('Extracted train number:', trainNumber, 'from', file.name)
 
     try {
       const data = await file.arrayBuffer()
@@ -279,7 +303,10 @@ function TaskTracker() {
 
       // Generate train_name from all unit numbers in this file
       const unitNumbers = Object.keys(parsedData).sort()
-      const trainName = `Train ${unitNumbers.map(u => u.slice(-3)).join('-')}`
+      let trainName = `Train ${unitNumbers.map(u => u.slice(-3)).join('-')}`
+      if (trainNumber) {
+        trainName = `T${trainNumber} (${trainName})`
+      }
 
       for (const [unitNumber, unitData] of Object.entries(parsedData)) {
         // Check if unit exists
@@ -292,16 +319,25 @@ function TaskTracker() {
         let unitId
         if (existingUnit) {
           unitId = existingUnit.id
-          // Update train_name for existing unit
+          // Update train_name and train_number for existing unit
           await supabase
             .from('train_units')
-            .update({ train_name: trainName })
+            .update({
+              train_name: trainName,
+              train_number: trainNumber,
+              last_synced_at: new Date().toISOString()
+            })
             .eq('id', unitId)
         } else {
-          // Create new unit with train_name
+          // Create new unit with train_name and train_number
           const { data: newUnit } = await supabase
             .from('train_units')
-            .insert({ unit_number: unitNumber, train_name: trainName })
+            .insert({
+              unit_number: unitNumber,
+              train_name: trainName,
+              train_number: trainNumber,
+              last_synced_at: new Date().toISOString()
+            })
             .select()
             .single()
           unitId = newUnit.id
@@ -434,10 +470,15 @@ function TaskTracker() {
               }}
             >
               <Train size={20} />
-              <span>{train.name}</span>
+              <span>{train.trainNumber ? `T${train.trainNumber}` : train.name}</span>
               <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.5rem' }}>
                 ({train.units.map(u => u.unit_number).join(' + ')})
               </span>
+              {train.phase && (
+                <span style={{ fontSize: '0.625rem', opacity: 0.5, marginLeft: '0.25rem' }}>
+                  {train.phase}
+                </span>
+              )}
             </button>
           ))}
         </div>
