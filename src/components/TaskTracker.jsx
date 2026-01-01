@@ -29,6 +29,8 @@ function TaskTracker() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
   const [collapsedPhases, setCollapsedPhases] = useState({}) // Track which phases are collapsed
+  const [isTrainSelectorCollapsed, setIsTrainSelectorCollapsed] = useState(false)
+  const [trainCompletionData, setTrainCompletionData] = useState({}) // Cache train completion stats
 
   // Get unique phases from current car's tasks
   const getUniquePhases = (tasks) => {
@@ -122,11 +124,53 @@ function TaskTracker() {
         if (trainList.length > 0) {
           setSelectedTrain(trainList[0])
         }
+
+        // Load completion stats for all trains
+        loadTrainCompletionStats(trainList)
       }
     } catch (error) {
       console.error('Error loading data:', error)
     }
     setLoading(false)
+  }
+
+  // Load completion stats for all trains (for showing % on buttons)
+  const loadTrainCompletionStats = async (trainList) => {
+    try {
+      // Get all unit IDs
+      const allUnitIds = trainList.flatMap(t => t.units.map(u => u.id))
+
+      // Fetch all cars with task completions for all trains
+      const { data: allCars } = await supabase
+        .from('cars')
+        .select('unit_id, task_completions(status)')
+        .in('unit_id', allUnitIds)
+
+      if (allCars) {
+        const stats = {}
+        trainList.forEach(train => {
+          const trainUnitIds = train.units.map(u => u.id)
+          const trainCars = allCars.filter(c => trainUnitIds.includes(c.unit_id))
+          const allTasks = trainCars.flatMap(c => c.task_completions || [])
+
+          const total = allTasks.length
+          const completed = allTasks.filter(t => t.status === 'completed').length
+          const inProgress = allTasks.filter(t => t.status === 'in_progress').length
+          const pending = allTasks.filter(t => t.status === 'pending').length
+
+          stats[train.name] = {
+            total,
+            completed,
+            inProgress,
+            pending,
+            percent: total > 0 ? Math.round((completed / total) * 100) : 0
+          }
+        })
+        setTrainCompletionData(stats)
+      }
+    } catch (error) {
+      console.error('Error loading train completion stats:', error)
+    }
   }
 
   const loadCarsForTrain = async (train) => {
@@ -584,30 +628,171 @@ function TaskTracker() {
 
       {/* Train Selector */}
       {trains.length > 0 && (
-        <div className="unit-selector">
-          {trains
-            .filter(train => phaseFilter === 'all' || train.phase === phaseFilter)
-            .map(train => (
-            <button
-              key={train.name}
-              className={`unit-btn ${selectedTrain?.name === train.name ? 'active' : ''}`}
-              onClick={() => {
-                setSelectedTrain(train)
-                setSelectedCar(null)
+        <div style={{ marginBottom: '1rem' }}>
+          {/* Train Selector Header with Dropdown */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            marginBottom: '0.5rem',
+            flexWrap: 'wrap'
+          }}>
+            <div
+              onClick={() => setIsTrainSelectorCollapsed(!isTrainSelectorCollapsed)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                cursor: 'pointer',
+                padding: '0.5rem',
+                borderRadius: '0.5rem',
+                background: 'var(--bg-secondary)'
               }}
             >
-              <Train size={20} />
-              <span>{train.trainNumber ? `T${train.trainNumber}` : train.name}</span>
-              <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.5rem' }}>
-                ({train.units.map(u => u.unit_number).join(' + ')})
+              {isTrainSelectorCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              <span style={{ fontWeight: '600' }}>
+                Trains ({(() => {
+                  const filtered = trains.filter(train => {
+                    const stats = trainCompletionData[train.name]
+                    if (statusFilter === 'in_progress') return stats?.inProgress > 0
+                    if (statusFilter === 'pending') return stats?.pending > 0
+                    if (statusFilter === 'completed') return stats?.completed > 0
+                    return true
+                  })
+                  return filtered.length
+                })()})
               </span>
-              {train.phase && (
-                <span style={{ fontSize: '0.625rem', opacity: 0.5, marginLeft: '0.25rem' }}>
-                  {train.phase}
-                </span>
-              )}
-            </button>
-          ))}
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {isTrainSelectorCollapsed ? 'Click to expand' : 'Click to collapse'}
+              </span>
+            </div>
+
+            {/* Train Dropdown */}
+            <select
+              value={selectedTrain?.name || ''}
+              onChange={(e) => {
+                const train = trains.find(t => t.name === e.target.value)
+                if (train) {
+                  setSelectedTrain(train)
+                  setSelectedCar(null)
+                }
+              }}
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-card)',
+                color: 'var(--text)',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                minWidth: '200px'
+              }}
+            >
+              {trains
+                .filter(train => {
+                  const stats = trainCompletionData[train.name]
+                  if (statusFilter === 'in_progress') return stats?.inProgress > 0
+                  if (statusFilter === 'pending') return stats?.pending > 0
+                  if (statusFilter === 'completed') return stats?.completed > 0
+                  return true
+                })
+                .map(train => {
+                  const stats = trainCompletionData[train.name]
+                  return (
+                    <option key={train.name} value={train.name}>
+                      T{train.trainNumber} - {stats?.percent || 0}% ({train.phase || 'No Phase'})
+                    </option>
+                  )
+                })}
+            </select>
+          </div>
+
+          {/* Train Buttons Grid */}
+          {!isTrainSelectorCollapsed && (
+            <div className="unit-selector">
+              {trains
+                .filter(train => {
+                  const stats = trainCompletionData[train.name]
+                  // Filter by status if set
+                  if (statusFilter === 'in_progress') return stats?.inProgress > 0
+                  if (statusFilter === 'pending') return stats?.pending > 0
+                  if (statusFilter === 'completed') return stats?.completed > 0
+                  return true
+                })
+                .map(train => {
+                  const stats = trainCompletionData[train.name]
+                  const percent = stats?.percent || 0
+                  const progressColor = percent === 100 ? '#10B981' :
+                                       percent >= 80 ? '#84CC16' :
+                                       percent >= 50 ? '#FACC15' :
+                                       percent >= 20 ? '#F59E0B' :
+                                       percent > 0 ? '#EF4444' : '#475569'
+
+                  return (
+                    <button
+                      key={train.name}
+                      className={`unit-btn ${selectedTrain?.name === train.name ? 'active' : ''}`}
+                      onClick={() => {
+                        setSelectedTrain(train)
+                        setSelectedCar(null)
+                      }}
+                      style={{
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      {/* Progress bar background */}
+                      <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        bottom: 0,
+                        height: '4px',
+                        width: `${percent}%`,
+                        background: progressColor,
+                        transition: 'width 0.3s ease'
+                      }} />
+
+                      <Train size={20} />
+                      <span>{train.trainNumber ? `T${train.trainNumber}` : train.name}</span>
+
+                      {/* Completion percentage badge */}
+                      <span style={{
+                        fontSize: '0.7rem',
+                        padding: '0.125rem 0.375rem',
+                        borderRadius: '9999px',
+                        background: progressColor,
+                        color: percent >= 50 ? '#000' : '#fff',
+                        marginLeft: '0.25rem',
+                        fontWeight: '600'
+                      }}>
+                        {percent}%
+                      </span>
+
+                      {train.phase && (
+                        <span style={{ fontSize: '0.625rem', opacity: 0.5, marginLeft: '0.25rem' }}>
+                          {train.phase}
+                        </span>
+                      )}
+
+                      {/* Show in-progress count if filtering by in_progress */}
+                      {statusFilter === 'in_progress' && stats?.inProgress > 0 && (
+                        <span style={{
+                          fontSize: '0.625rem',
+                          padding: '0.125rem 0.25rem',
+                          borderRadius: '0.25rem',
+                          background: '#F59E0B',
+                          color: '#000',
+                          marginLeft: '0.25rem'
+                        }}>
+                          {stats.inProgress} in progress
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+            </div>
+          )}
         </div>
       )}
 
