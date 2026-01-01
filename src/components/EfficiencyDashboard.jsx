@@ -265,8 +265,12 @@ function EfficiencyDashboard() {
       overallEfficiency: totalTasks > 0 ? Math.round((completed / totalTasks) * 100) : 0
     })
 
-    // Calculate team performance
+    // Calculate team performance with person-days tracking
+    // Efficiency = task_hours / (8h × person-days)
+    // Where person-days = unique (person, date) combinations
     const teamStats = {}
+    const personDaysTracker = {} // { teamKey: Set of "person|date" strings }
+
     completions.forEach(c => {
       let teamKey = null
       let teamName = null
@@ -302,26 +306,52 @@ function EfficiencyDashboard() {
             totalMinutes: 0,
             completedMinutes: 0
           }
+          personDaysTracker[teamKey] = new Set()
         }
         teamStats[teamKey].total++
         const taskMinutes = c.total_minutes || 0
         teamStats[teamKey].totalMinutes += taskMinutes
+
         if (c.status === 'completed') {
           teamStats[teamKey].completed++
           teamStats[teamKey].completedMinutes += taskMinutes
+
+          // Track person-days for efficiency calculation
+          // Each unique (person, date) combination = 8 hours available
+          if (c.completed_at && c.completed_by) {
+            const dateStr = c.completed_at.split('T')[0]
+            const completedByArr = Array.isArray(c.completed_by) ? c.completed_by : [c.completed_by]
+            completedByArr.forEach(person => {
+              if (person) {
+                const personDay = `${person.toString().trim().toUpperCase()}|${dateStr}`
+                personDaysTracker[teamKey].add(personDay)
+              }
+            })
+          }
         }
         if (c.status === 'in_progress') teamStats[teamKey].inProgress++
       }
     })
 
     // Sort by number of completed tasks (descending) for ranking
-    const teamData = Object.values(teamStats).map(team => ({
-      ...team,
-      efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0,
-      totalHours: Math.round(team.totalMinutes / 60 * 10) / 10, // 1 decimal
-      completedHours: Math.round(team.completedMinutes / 60 * 10) / 10,
-      timeEfficiency: team.totalMinutes > 0 ? Math.round((team.completedMinutes / team.totalMinutes) * 100) : 0
-    })).sort((a, b) => b.completed - a.completed)
+    // Calculate efficiency: task_hours / (8h × person-days)
+    const teamData = Object.entries(teamStats).map(([teamKey, team]) => {
+      const personDays = personDaysTracker[teamKey]?.size || 0
+      const availableHours = personDays * 8
+      const taskHours = team.completedMinutes / 60
+      // Real efficiency = work hours / available hours (8h per person per day)
+      const realEfficiency = availableHours > 0 ? Math.round((taskHours / availableHours) * 100) : 0
+
+      return {
+        ...team,
+        personDays,
+        availableHours: Math.round(availableHours * 10) / 10,
+        efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0, // Task completion %
+        totalHours: Math.round(team.totalMinutes / 60 * 10) / 10, // 1 decimal
+        completedHours: Math.round(team.completedMinutes / 60 * 10) / 10,
+        timeEfficiency: realEfficiency // Real efficiency based on 8h/person/day
+      }
+    }).sort((a, b) => b.completed - a.completed)
 
     setTeamPerformance(teamData)
 
@@ -822,10 +852,11 @@ function EfficiencyDashboard() {
               <th>Rank</th>
               <th>Team</th>
               <th>Tasks Done</th>
-              <th>Hours Done</th>
-              <th>Total Hours</th>
+              <th>Task Hours</th>
+              <th>Person-Days</th>
+              <th>Avail. Hours</th>
               <th className="progress-cell">Task %</th>
-              <th className="progress-cell">Hours %</th>
+              <th className="progress-cell">Efficiency</th>
             </tr>
           </thead>
           <tbody>
@@ -845,7 +876,8 @@ function EfficiencyDashboard() {
                 </td>
                 <td>{team.completed}/{team.total}</td>
                 <td>{team.completedHours}h</td>
-                <td>{team.totalHours}h</td>
+                <td>{team.personDays}</td>
+                <td>{team.availableHours}h</td>
                 <td className="progress-cell">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <div className="progress-bar" style={{ flex: 1, minWidth: '60px' }}>
@@ -867,7 +899,7 @@ function EfficiencyDashboard() {
                       <div
                         className="progress-fill"
                         style={{
-                          width: `${team.timeEfficiency}%`,
+                          width: `${Math.min(team.timeEfficiency, 100)}%`,
                           background: team.timeEfficiency >= 80 ? '#10B981' :
                                      team.timeEfficiency >= 50 ? '#F59E0B' : '#EF4444'
                         }}
@@ -880,13 +912,18 @@ function EfficiencyDashboard() {
             ))}
             {teamPerformance.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>
+                <td colSpan={8} style={{ textAlign: 'center', color: '#94a3b8' }}>
                   No team data available. Complete tasks and assign teams to see performance metrics.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          <strong>Efficiency Formula:</strong> Task Hours ÷ Available Hours (8h × Person-Days)
+          <br />
+          <em>Example: If AS works 3 days and completes 21 hours of tasks, efficiency = 21h ÷ (8h × 3) = 87.5%</em>
+        </div>
       </div>
 
       {/* Finance Justification Section */}
