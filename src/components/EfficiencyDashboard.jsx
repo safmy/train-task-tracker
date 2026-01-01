@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
 } from 'recharts'
-import { TrendingUp, Users, CheckCircle, Clock, Target, Award } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter } from 'lucide-react'
 
 function EfficiencyDashboard() {
   const [loading, setLoading] = useState(true)
@@ -19,53 +19,86 @@ function EfficiencyDashboard() {
   const [unitProgress, setUnitProgress] = useState([])
   const [completionsByDay, setCompletionsByDay] = useState([])
   const [selectedTimeRange, setSelectedTimeRange] = useState('all')
+  const [trains, setTrains] = useState([])
+  const [selectedTrain, setSelectedTrain] = useState('all')
+
+  useEffect(() => {
+    loadTrains()
+  }, [])
 
   useEffect(() => {
     loadDashboardData()
-  }, [selectedTimeRange])
+  }, [selectedTimeRange, selectedTrain])
+
+  const loadTrains = async () => {
+    try {
+      const { data } = await supabase
+        .from('train_units')
+        .select('train_number, train_name')
+        .order('train_number')
+
+      if (data) {
+        // Get unique trains
+        const uniqueTrains = [...new Map(data.map(u => [u.train_number, u])).values()]
+        setTrains(uniqueTrains)
+      }
+    } catch (error) {
+      console.error('Error loading trains:', error)
+    }
+  }
 
   const loadDashboardData = async () => {
     setLoading(true)
     try {
+      // Get all cars with their train unit info
+      let carsQuery = supabase
+        .from('cars')
+        .select('*, train_units(*), car_types(*)')
+
+      const { data: allCars } = await carsQuery
+
+      // Filter cars by selected train
+      let filteredCarIds = []
+      let filteredCars = allCars || []
+
+      if (selectedTrain !== 'all' && allCars) {
+        const trainNum = parseInt(selectedTrain)
+        filteredCars = allCars.filter(car => car.train_units?.train_number === trainNum)
+        filteredCarIds = filteredCars.map(c => c.id)
+      } else if (allCars) {
+        filteredCarIds = allCars.map(c => c.id)
+      }
+
       // Get all completions with related data
-      const { data: completions } = await supabase
+      let completionsQuery = supabase
         .from('task_completions')
         .select(`
           *,
           teams(*),
-          cars(*, train_units(*), car_types(*)),
-          task_templates(*)
+          cars(*, train_units(*), car_types(*))
         `)
 
-      // Get all task templates to calculate totals
-      const { data: templates } = await supabase
-        .from('task_templates')
-        .select('*, car_types(*)')
+      const { data: allCompletions } = await completionsQuery
 
-      // Get all cars to calculate expected tasks
-      const { data: cars } = await supabase
-        .from('cars')
-        .select('*, train_units(*), car_types(*)')
+      // Filter completions by selected train
+      let completions = allCompletions || []
+      if (selectedTrain !== 'all' && allCompletions) {
+        completions = allCompletions.filter(c => filteredCarIds.includes(c.car_id))
+      }
 
-      if (completions && templates && cars) {
-        // Calculate expected total tasks (each car has tasks based on its type)
-        let expectedTotal = 0
-        cars.forEach(car => {
-          const tasksForType = templates.filter(t => t.car_type_id === car.car_type_id)
-          expectedTotal += tasksForType.length
-        })
-
-        // Calculate stats
+      if (completions) {
+        // Calculate stats from actual task_completions data
+        const totalTasks = completions.length
         const completed = completions.filter(c => c.status === 'completed').length
         const inProgress = completions.filter(c => c.status === 'in_progress').length
-        const pending = expectedTotal - completed - inProgress
+        const pending = completions.filter(c => c.status === 'pending').length
 
         setStats({
-          totalTasks: expectedTotal,
+          totalTasks,
           completedTasks: completed,
           inProgressTasks: inProgress,
-          pendingTasks: pending > 0 ? pending : 0,
-          overallEfficiency: expectedTotal > 0 ? Math.round((completed / expectedTotal) * 100) : 0
+          pendingTasks: pending,
+          overallEfficiency: totalTasks > 0 ? Math.round((completed / totalTasks) * 100) : 0
         })
 
         // Calculate team performance
@@ -94,34 +127,37 @@ function EfficiencyDashboard() {
 
         setTeamPerformance(teamData)
 
-        // Calculate unit progress
+        // Calculate unit progress from filtered completions
         const unitStats = {}
-        cars.forEach(car => {
-          const unitId = car.train_units?.id
-          const unitNumber = car.train_units?.unit_number
+        completions.forEach(c => {
+          const unitId = c.cars?.train_units?.id
+          const unitNumber = c.cars?.train_units?.unit_number
+          const trainNumber = c.cars?.train_units?.train_number
           if (unitId) {
             if (!unitStats[unitId]) {
               unitStats[unitId] = {
-                name: `Unit ${unitNumber}`,
+                name: `T${String(trainNumber).padStart(2, '0')} - ${unitNumber}`,
                 unitNumber,
+                trainNumber,
                 totalTasks: 0,
                 completedTasks: 0
               }
             }
-            const tasksForCar = templates.filter(t => t.car_type_id === car.car_type_id)
-            unitStats[unitId].totalTasks += tasksForCar.length
-
-            const completedForCar = completions.filter(
-              c => c.car_id === car.id && c.status === 'completed'
-            ).length
-            unitStats[unitId].completedTasks += completedForCar
+            unitStats[unitId].totalTasks++
+            if (c.status === 'completed') {
+              unitStats[unitId].completedTasks++
+            }
           }
         })
 
         const unitData = Object.values(unitStats).map(unit => ({
           ...unit,
           percent: unit.totalTasks > 0 ? Math.round((unit.completedTasks / unit.totalTasks) * 100) : 0
-        })).sort((a, b) => a.unitNumber?.localeCompare(b.unitNumber))
+        })).sort((a, b) => {
+          // Sort by train number first, then unit number
+          if (a.trainNumber !== b.trainNumber) return a.trainNumber - b.trainNumber
+          return a.unitNumber?.localeCompare(b.unitNumber)
+        })
 
         setUnitProgress(unitData)
 
@@ -174,7 +210,66 @@ function EfficiencyDashboard() {
 
   return (
     <div className="efficiency-dashboard">
-      <h1 style={{ marginBottom: '1.5rem' }}>Efficiency Dashboard</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <h1 style={{ margin: 0 }}>Efficiency Dashboard</h1>
+
+        {/* Train Filter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Filter size={20} style={{ color: 'var(--text-muted)' }} />
+          <select
+            value={selectedTrain}
+            onChange={(e) => setSelectedTrain(e.target.value)}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text)',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              minWidth: '150px'
+            }}
+          >
+            <option value="all">All Trains (T01-T62)</option>
+            {trains.map(train => (
+              <option key={train.train_number} value={train.train_number}>
+                T{String(train.train_number).padStart(2, '0')}
+              </option>
+            ))}
+          </select>
+          {selectedTrain !== 'all' && (
+            <button
+              onClick={() => setSelectedTrain('all')}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                fontSize: '0.875rem',
+                cursor: 'pointer'
+              }}
+            >
+              Clear Filter
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter indicator */}
+      {selectedTrain !== 'all' && (
+        <div style={{
+          background: 'var(--accent)',
+          color: 'white',
+          padding: '0.5rem 1rem',
+          borderRadius: '0.5rem',
+          marginBottom: '1rem',
+          display: 'inline-block',
+          fontSize: '0.875rem'
+        }}>
+          Showing data for Train T{String(selectedTrain).padStart(2, '0')} only
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="stats-grid">
@@ -300,10 +395,14 @@ function EfficiencyDashboard() {
       {/* Unit Progress */}
       <div className="chart-container">
         <div className="chart-header">
-          <h3 className="chart-title">Progress by Train Unit</h3>
+          <h3 className="chart-title">
+            {selectedTrain === 'all'
+              ? `Progress by Train Unit (Top 20 of ${unitProgress.length})`
+              : `Progress by Unit - T${String(selectedTrain).padStart(2, '0')}`}
+          </h3>
         </div>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={unitProgress} layout="vertical">
+        <ResponsiveContainer width="100%" height={selectedTrain === 'all' ? 500 : 300}>
+          <BarChart data={selectedTrain === 'all' ? unitProgress.slice(0, 20) : unitProgress} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
             <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
             <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={12} width={100} />
