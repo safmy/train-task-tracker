@@ -28,6 +28,52 @@ function TaskTracker() {
   const [phaseFilter, setPhaseFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
+  const [collapsedPhases, setCollapsedPhases] = useState({}) // Track which phases are collapsed
+
+  // Get unique phases from current car's tasks
+  const getUniquePhases = (tasks) => {
+    const phases = [...new Set(tasks.map(t => t.phase || 'No Phase').filter(Boolean))]
+    // Sort phases: Phase 0, Phase 1, etc., then Catchback, then No Phase
+    return phases.sort((a, b) => {
+      const getOrder = (p) => {
+        if (p === 'No Phase') return 999
+        if (p.toLowerCase().includes('catchback')) return 998
+        const match = p.match(/Phase\s*(\d+\.?\d*)/i)
+        if (match) return parseFloat(match[1])
+        return 500
+      }
+      return getOrder(a) - getOrder(b)
+    })
+  }
+
+  // Group tasks by phase
+  const groupTasksByPhase = (tasks) => {
+    const grouped = {}
+    tasks.forEach(task => {
+      const phase = task.phase || 'No Phase'
+      if (!grouped[phase]) grouped[phase] = []
+      grouped[phase].push(task)
+    })
+    return grouped
+  }
+
+  // Toggle phase collapse
+  const togglePhaseCollapse = (phase) => {
+    setCollapsedPhases(prev => ({
+      ...prev,
+      [phase]: !prev[phase]
+    }))
+  }
+
+  // Collapse/expand all phases
+  const toggleAllPhases = (collapsed) => {
+    const allPhases = selectedCar?.task_completions ? getUniquePhases(selectedCar.task_completions) : []
+    const newState = {}
+    allPhases.forEach(phase => {
+      newState[phase] = collapsed
+    })
+    setCollapsedPhases(newState)
+  }
 
   useEffect(() => {
     loadData()
@@ -484,7 +530,7 @@ function TaskTracker() {
             }}
           >
             <option value="all">All Phases</option>
-            {[...new Set(trains.map(t => t.phase).filter(Boolean))].sort().map(phase => (
+            {selectedCar?.task_completions && getUniquePhases(selectedCar.task_completions).map(phase => (
               <option key={phase} value={phase}>{phase}</option>
             ))}
           </select>
@@ -635,10 +681,12 @@ function TaskTracker() {
                 {(() => {
                   const p = getCarProgress(selectedCar)
                   const filteredTasks = (selectedCar.task_completions || []).filter(t =>
-                    statusFilter === 'all' || t.status === statusFilter
+                    (statusFilter === 'all' || t.status === statusFilter) &&
+                    (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter)
                   )
-                  if (statusFilter !== 'all') {
-                    return `${filteredTasks.length} ${statusFilter.replace('_', ' ')} tasks (${p.completed}/${p.total} total completed - ${p.percent}%)`
+                  const filteredCompleted = filteredTasks.filter(t => t.status === 'completed').length
+                  if (statusFilter !== 'all' || phaseFilter !== 'all') {
+                    return `Showing ${filteredTasks.length} tasks (${filteredCompleted} completed) | Total: ${p.completed}/${p.total} (${p.percent}%)`
                   }
                   return `${p.completed} of ${p.total} tasks completed (${p.percent}%)`
                 })()}
@@ -651,50 +699,144 @@ function TaskTracker() {
 
           {!isTaskListCollapsed && (
             <div className="task-list">
-              {(selectedCar.task_completions || [])
-                .filter(task => statusFilter === 'all' || task.status === statusFilter)
-                .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-                .map(task => (
-                <div
-                  key={task.id}
-                  className={`task-item ${task.status}`}
-                  onClick={() => openTaskModal(task)}
+              {/* Collapse/Expand All Controls */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', padding: '0 0.5rem' }}>
+                <button
+                  onClick={() => toggleAllPhases(true)}
+                  style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
                 >
-                  <div className="task-status">
-                    <span className={`status-badge status-${task.status}`}>
-                      {getStatusIcon(task.status)}
-                    </span>
-                  </div>
-                  <div className="task-info">
-                    <div className="task-name">{task.task_name}</div>
-                    {task.description && (
-                      <div className="task-desc">{task.description}</div>
-                    )}
-                  </div>
-                  <div className="task-meta">
-                    {task.completed_by?.length > 0 && (
-                      <div className="task-initials">
-                        {task.completed_by.slice(0, 4).map((init, i) => (
-                          <span key={i} className="initial-badge">{init}</span>
-                        ))}
-                        {task.completed_by.length > 4 && (
-                          <span className="initial-more">+{task.completed_by.length - 4}</span>
-                        )}
+                  Collapse All
+                </button>
+                <button
+                  onClick={() => toggleAllPhases(false)}
+                  style={{
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Expand All
+                </button>
+              </div>
+
+              {/* Group tasks by phase */}
+              {(() => {
+                const allTasks = (selectedCar.task_completions || [])
+                  .filter(task => statusFilter === 'all' || task.status === statusFilter)
+                  .filter(task => phaseFilter === 'all' || (task.phase || 'No Phase') === phaseFilter)
+
+                if (allTasks.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                      No tasks match the current filter
+                    </div>
+                  )
+                }
+
+                const groupedTasks = groupTasksByPhase(allTasks)
+                const sortedPhases = getUniquePhases(allTasks)
+
+                return sortedPhases.map(phase => {
+                  const phaseTasks = groupedTasks[phase] || []
+                  const completedCount = phaseTasks.filter(t => t.status === 'completed').length
+                  const isCollapsed = collapsedPhases[phase]
+
+                  // Get phase color based on completion
+                  const phasePercent = phaseTasks.length > 0 ? Math.round((completedCount / phaseTasks.length) * 100) : 0
+                  const phaseColor = phasePercent === 100 ? '#10B981' :
+                                     phasePercent >= 50 ? '#F59E0B' :
+                                     phasePercent > 0 ? '#EF4444' : '#475569'
+
+                  return (
+                    <div key={phase} style={{ marginBottom: '0.5rem' }}>
+                      {/* Phase Header */}
+                      <div
+                        onClick={() => togglePhaseCollapse(phase)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.75rem 1rem',
+                          background: 'var(--bg-secondary)',
+                          borderRadius: '0.5rem',
+                          cursor: 'pointer',
+                          borderLeft: `4px solid ${phaseColor}`,
+                          marginBottom: isCollapsed ? 0 : '0.25rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                          <span style={{ fontWeight: '600' }}>{phase}</span>
+                          <span style={{
+                            fontSize: '0.75rem',
+                            padding: '0.125rem 0.5rem',
+                            background: phaseColor,
+                            color: 'white',
+                            borderRadius: '9999px'
+                          }}>
+                            {completedCount}/{phaseTasks.length} ({phasePercent}%)
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {isCollapsed ? 'Click to expand' : 'Click to collapse'}
+                        </span>
                       </div>
-                    )}
-                    {task.completed_at && (
-                      <div className="task-date">
-                        {new Date(task.completed_at).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {(selectedCar.task_completions || []).filter(task => statusFilter === 'all' || task.status === statusFilter).length === 0 && (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                  No tasks match the current filter
-                </div>
-              )}
+
+                      {/* Phase Tasks */}
+                      {!isCollapsed && phaseTasks
+                        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                        .map(task => (
+                        <div
+                          key={task.id}
+                          className={`task-item ${task.status}`}
+                          onClick={() => openTaskModal(task)}
+                        >
+                          <div className="task-status">
+                            <span className={`status-badge status-${task.status}`}>
+                              {getStatusIcon(task.status)}
+                            </span>
+                          </div>
+                          <div className="task-info">
+                            <div className="task-name">{task.task_name}</div>
+                            {task.description && (
+                              <div className="task-desc">{task.description}</div>
+                            )}
+                          </div>
+                          <div className="task-meta">
+                            {task.completed_by?.length > 0 && (
+                              <div className="task-initials">
+                                {task.completed_by.slice(0, 4).map((init, i) => (
+                                  <span key={i} className="initial-badge">{init}</span>
+                                ))}
+                                {task.completed_by.length > 4 && (
+                                  <span className="initial-more">+{task.completed_by.length - 4}</span>
+                                )}
+                              </div>
+                            )}
+                            {task.completed_at && (
+                              <div className="task-date">
+                                {new Date(task.completed_at).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })
+              })()}
             </div>
           )}
         </div>

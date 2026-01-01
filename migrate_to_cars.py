@@ -5,12 +5,51 @@ Migrate data from tasks table to cars + task_completions tables
 
 from supabase import create_client
 from datetime import datetime
+import openpyxl
+import os
 
 # Supabase configuration
 SUPABASE_URL = "https://fsubmqjevlfpcirgsbhi.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZzdWJtcWpldmxmcGNpcmdzYmhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzNTgyNzgsImV4cCI6MjA2NDkzNDI3OH0.Hfo1kCUCVMvr2ffhLJ3rp7qLMchWYdmBkzOYcorQVQE"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def load_phase_mapping():
+    """Load task -> phase mapping from Master Data sheet"""
+    master_file = "Work2Sheets Masters.xlsx"
+    if not os.path.exists(master_file):
+        print(f"  Warning: {master_file} not found, phases will be empty")
+        return {}
+
+    print(f"  Loading phase mapping from {master_file}...")
+    wb = openpyxl.load_workbook(master_file, data_only=True)
+
+    if 'Master Data' not in wb.sheetnames:
+        print("  Warning: 'Master Data' sheet not found")
+        return {}
+
+    sheet = wb['Master Data']
+    task_phases = {}
+
+    for row in sheet.iter_rows(min_row=2, max_col=2, values_only=True):
+        phase, task = row
+        if phase and task:
+            # Normalize phase names (capitalize properly, handle variations)
+            phase_str = str(phase).strip()
+            # Normalize catchback variations
+            if phase_str.lower() in ['catch back', 'catchback']:
+                phase_str = 'Catchback'
+            task_phases[str(task).strip().upper()] = phase_str
+
+    print(f"  Loaded {len(task_phases)} task->phase mappings")
+
+    # Print phase distribution
+    phase_counts = {}
+    for phase in task_phases.values():
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+    print(f"  Phase distribution: {dict(sorted(phase_counts.items()))}")
+
+    return task_phases
 
 # Team mapping - assign initials to teams
 INITIAL_TO_TEAM = {
@@ -33,6 +72,10 @@ def migrate():
     print("=" * 60)
     print("MIGRATING TASKS TO CARS + TASK_COMPLETIONS")
     print("=" * 60)
+
+    # Load phase mapping from Master Data
+    print("\nLoading phase mapping...")
+    task_phases = load_phase_mapping()
 
     # Get team IDs
     print("\nFetching teams...")
@@ -121,6 +164,10 @@ def migrate():
                                 team_id = team_id_map[team_name]
                                 break
 
+                # Look up phase from task name
+                task_name_upper = task.get('task_name', '').strip().upper()
+                phase = task_phases.get(task_name_upper, None)
+
                 completion = {
                     'car_id': car_id,
                     'task_name': task.get('task_name', '')[:255],
@@ -132,6 +179,7 @@ def migrate():
                     'team_id': team_id,
                     'total_minutes': task.get('total_minutes', 0),
                     'num_people': task.get('num_people', 1),
+                    'phase': phase,
                 }
                 completions.append(completion)
 
@@ -164,6 +212,16 @@ def migrate():
     print(f"\nVerification:")
     print(f"  Cars in database: {cars_count.count}")
     print(f"  Task completions in database: {completions_count.count}")
+
+    # Check phase distribution in database
+    print("\nPhase distribution in database:")
+    phases_result = supabase.table('task_completions').select('phase').execute()
+    phase_counts = {}
+    for row in phases_result.data:
+        phase = row.get('phase') or 'No Phase'
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+    for phase, count in sorted(phase_counts.items()):
+        print(f"  {phase}: {count}")
 
 
 if __name__ == "__main__":
