@@ -10,6 +10,15 @@
   to { transform: rotate(360deg); }
 }
 
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.refresh-btn:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
 :root {
   --primary: #3B82F6;
   --primary-dark: #2563EB;

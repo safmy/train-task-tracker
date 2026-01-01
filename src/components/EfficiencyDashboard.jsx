@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
 } from 'recharts'
-import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
 
 const CACHE_KEY = 'train_tracker_dashboard_cache'
 const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp'
@@ -41,18 +41,40 @@ function EfficiencyDashboard() {
 
   useEffect(() => {
     loadTrains()
-    // Check for cached data on initial load
+
+    // Check for cached data on initial load - load directly from localStorage
     const cached = localStorage.getItem(CACHE_KEY)
     const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
     if (cached && timestamp) {
-      setCachedData(JSON.parse(cached))
-      setCacheTimestamp(new Date(timestamp))
+      try {
+        const parsedCache = JSON.parse(cached)
+        setCachedData(parsedCache)
+        setCacheTimestamp(new Date(timestamp))
+        // Load dashboard with cached data immediately
+        loadDashboardDataWithCache(parsedCache)
+      } catch (e) {
+        console.error('Error parsing cache:', e)
+        loadDashboardData(true) // Force refresh if cache is invalid
+      }
+    } else {
+      // No cache, load from server
+      loadDashboardData(true)
     }
+
+    // Listen for refresh events from navbar
+    const handleRefreshEvent = () => {
+      handleRefresh()
+    }
+    window.addEventListener('refreshDashboardData', handleRefreshEvent)
+    return () => window.removeEventListener('refreshDashboardData', handleRefreshEvent)
   }, [])
 
   useEffect(() => {
-    loadDashboardData(false) // Use cache if available
-  }, [selectedTimeRange, selectedTrain, cachedData])
+    // Only reload when filters change (not on initial mount)
+    if (cachedData) {
+      loadDashboardDataWithCache(cachedData)
+    }
+  }, [selectedTimeRange, selectedTrain])
 
   const loadTrains = async () => {
     try {
@@ -102,6 +124,152 @@ function EfficiencyDashboard() {
     return filterFn ? allData.filter(filterFn) : allData
   }
 
+  // Process cached data without fetching from server
+  const loadDashboardDataWithCache = (cache) => {
+    setLoading(true)
+    setLoadingProgress('Loading from cache...')
+
+    try {
+      const allCars = cache.cars || []
+      const allCompletions = cache.completions || []
+
+      // Filter cars by selected train
+      let filteredCarIds = []
+      let filteredCars = allCars
+
+      if (selectedTrain !== 'all') {
+        const trainNum = parseInt(selectedTrain)
+        filteredCars = allCars.filter(car => car.train_units?.train_number === trainNum)
+        filteredCarIds = filteredCars.map(c => c.id)
+      } else {
+        filteredCarIds = allCars.map(c => c.id)
+      }
+
+      // Filter completions by selected train
+      let completions = allCompletions
+      if (selectedTrain !== 'all') {
+        completions = allCompletions.filter(c => filteredCarIds.includes(c.car_id))
+      }
+
+      processCompletionsData(completions)
+    } catch (error) {
+      console.error('Error processing cached data:', error)
+    }
+    setLoading(false)
+  }
+
+  // Shared function to process completions data
+  const processCompletionsData = (completions) => {
+    if (!completions) return
+
+    // Calculate stats from actual task_completions data
+    const totalTasks = completions.length
+    const completed = completions.filter(c => c.status === 'completed').length
+    const inProgress = completions.filter(c => c.status === 'in_progress').length
+    const pending = completions.filter(c => c.status === 'pending').length
+
+    setStats({
+      totalTasks,
+      completedTasks: completed,
+      inProgressTasks: inProgress,
+      pendingTasks: pending,
+      overallEfficiency: totalTasks > 0 ? Math.round((completed / totalTasks) * 100) : 0
+    })
+
+    // Calculate team performance
+    const teamStats = {}
+    completions.forEach(c => {
+      if (c.teams) {
+        // Rename "Night Shift" to "Team D"
+        const teamName = c.teams.name === 'Night Shift' ? 'Team D' : c.teams.name
+        if (!teamStats[c.teams.id]) {
+          teamStats[c.teams.id] = {
+            name: teamName,
+            color: c.teams.color,
+            completed: 0,
+            inProgress: 0,
+            total: 0
+          }
+        }
+        teamStats[c.teams.id].total++
+        if (c.status === 'completed') teamStats[c.teams.id].completed++
+        if (c.status === 'in_progress') teamStats[c.teams.id].inProgress++
+      }
+    })
+
+    // Sort by number of completed tasks (descending) for ranking
+    const teamData = Object.values(teamStats).map(team => ({
+      ...team,
+      efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0
+    })).sort((a, b) => b.completed - a.completed)
+
+    setTeamPerformance(teamData)
+
+    // Calculate train progress (aggregate by train number T01-T62)
+    const trainStats = {}
+    completions.forEach(c => {
+      const trainNumber = c.cars?.train_units?.train_number
+      if (trainNumber) {
+        const trainKey = `T${String(trainNumber).padStart(2, '0')}`
+        if (!trainStats[trainKey]) {
+          trainStats[trainKey] = {
+            name: trainKey,
+            trainNumber,
+            totalTasks: 0,
+            completedTasks: 0,
+            inProgressTasks: 0
+          }
+        }
+        trainStats[trainKey].totalTasks++
+        if (c.status === 'completed') {
+          trainStats[trainKey].completedTasks++
+        } else if (c.status === 'in_progress') {
+          trainStats[trainKey].inProgressTasks++
+        }
+      }
+    })
+
+    const trainData = Object.values(trainStats).map(train => ({
+      ...train,
+      percent: train.totalTasks > 0 ? Math.round((train.completedTasks / train.totalTasks) * 100) : 0
+    }))
+
+    setUnitProgress(trainData)
+
+    // Calculate completions by day (from actual data, not just last 14 days)
+    const dailyStats = {}
+
+    completions.forEach(c => {
+      if (c.completed_at) {
+        const dateStr = c.completed_at.split('T')[0]
+        // Validate date - must be a valid format YYYY-MM-DD
+        if (dateStr && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          if (!dailyStats[dateStr]) {
+            dailyStats[dateStr] = { date: dateStr, count: 0 }
+          }
+          dailyStats[dateStr].count++
+        }
+      }
+    })
+
+    // Sort by actual date (not string comparison) and take last 30 entries
+    const sortedDays = Object.values(dailyStats)
+      .map(d => ({
+        ...d,
+        dateObj: new Date(d.date + 'T00:00:00'), // Parse as local time
+        displayDate: new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })
+      }))
+      .filter(d => !isNaN(d.dateObj.getTime())) // Filter out invalid dates
+      .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime()) // Sort by timestamp
+      .slice(-30)
+
+    setCompletionsByDay(sortedDays)
+  }
+
   const handleRefresh = () => {
     setIsRefreshing(true)
     setCachedData(null)
@@ -114,36 +282,27 @@ function EfficiencyDashboard() {
     setLoading(true)
     setLoadingProgress('Starting data load...')
     try {
-      let allCars, allCompletions
+      // Get all cars with their train unit info (with pagination)
+      setLoadingProgress('Loading cars from server...')
+      const allCars = await fetchAllData('cars', '*, train_units(*), car_types(*)')
 
-      // Check if we can use cached data
-      if (!forceRefresh && cachedData) {
-        setLoadingProgress('Using cached data...')
-        allCars = cachedData.cars
-        allCompletions = cachedData.completions
-      } else {
-        // Get all cars with their train unit info (with pagination)
-        setLoadingProgress('Loading cars from server...')
-        allCars = await fetchAllData('cars', '*, train_units(*), car_types(*)')
+      // Get all completions with pagination
+      setLoadingProgress('Loading task completions from server...')
+      const allCompletions = await fetchAllData('task_completions', `
+        *,
+        teams(*),
+        cars(*, train_units(*), car_types(*))
+      `)
 
-        // Get all completions with pagination
-        setLoadingProgress('Loading task completions from server...')
-        allCompletions = await fetchAllData('task_completions', `
-          *,
-          teams(*),
-          cars(*, train_units(*), car_types(*))
-        `)
-
-        // Cache the data
-        const cacheData = { cars: allCars, completions: allCompletions }
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData))
-          localStorage.setItem(CACHE_TIMESTAMP_KEY, new Date().toISOString())
-          setCachedData(cacheData)
-          setCacheTimestamp(new Date())
-        } catch (e) {
-          console.warn('Could not cache data to localStorage:', e)
-        }
+      // Cache the data
+      const cacheData = { cars: allCars, completions: allCompletions }
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData))
+        localStorage.setItem(CACHE_TIMESTAMP_KEY, new Date().toISOString())
+        setCachedData(cacheData)
+        setCacheTimestamp(new Date())
+      } catch (e) {
+        console.warn('Could not cache data to localStorage:', e)
       }
 
       // Filter cars by selected train
@@ -165,114 +324,7 @@ function EfficiencyDashboard() {
       }
 
       setLoadingProgress('Processing data...')
-      if (completions) {
-        // Calculate stats from actual task_completions data
-        const totalTasks = completions.length
-        const completed = completions.filter(c => c.status === 'completed').length
-        const inProgress = completions.filter(c => c.status === 'in_progress').length
-        const pending = completions.filter(c => c.status === 'pending').length
-
-        setStats({
-          totalTasks,
-          completedTasks: completed,
-          inProgressTasks: inProgress,
-          pendingTasks: pending,
-          overallEfficiency: totalTasks > 0 ? Math.round((completed / totalTasks) * 100) : 0
-        })
-
-        // Calculate team performance
-        const teamStats = {}
-        completions.forEach(c => {
-          if (c.teams) {
-            // Rename "Night Shift" to "Team D"
-            const teamName = c.teams.name === 'Night Shift' ? 'Team D' : c.teams.name
-            if (!teamStats[c.teams.id]) {
-              teamStats[c.teams.id] = {
-                name: teamName,
-                color: c.teams.color,
-                completed: 0,
-                inProgress: 0,
-                total: 0
-              }
-            }
-            teamStats[c.teams.id].total++
-            if (c.status === 'completed') teamStats[c.teams.id].completed++
-            if (c.status === 'in_progress') teamStats[c.teams.id].inProgress++
-          }
-        })
-
-        // Sort by number of completed tasks (descending) for ranking
-        const teamData = Object.values(teamStats).map(team => ({
-          ...team,
-          efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0
-        })).sort((a, b) => b.completed - a.completed)
-
-        setTeamPerformance(teamData)
-
-        // Calculate train progress (aggregate by train number T01-T62)
-        const trainStats = {}
-        completions.forEach(c => {
-          const trainNumber = c.cars?.train_units?.train_number
-          if (trainNumber) {
-            const trainKey = `T${String(trainNumber).padStart(2, '0')}`
-            if (!trainStats[trainKey]) {
-              trainStats[trainKey] = {
-                name: trainKey,
-                trainNumber,
-                totalTasks: 0,
-                completedTasks: 0,
-                inProgressTasks: 0
-              }
-            }
-            trainStats[trainKey].totalTasks++
-            if (c.status === 'completed') {
-              trainStats[trainKey].completedTasks++
-            } else if (c.status === 'in_progress') {
-              trainStats[trainKey].inProgressTasks++
-            }
-          }
-        })
-
-        const trainData = Object.values(trainStats).map(train => ({
-          ...train,
-          percent: train.totalTasks > 0 ? Math.round((train.completedTasks / train.totalTasks) * 100) : 0
-        }))
-
-        setUnitProgress(trainData)
-
-        // Calculate completions by day (from actual data, not just last 14 days)
-        const dailyStats = {}
-
-        completions.forEach(c => {
-          if (c.completed_at) {
-            const dateStr = c.completed_at.split('T')[0]
-            // Validate date - must be a valid format YYYY-MM-DD
-            if (dateStr && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-              if (!dailyStats[dateStr]) {
-                dailyStats[dateStr] = { date: dateStr, count: 0 }
-              }
-              dailyStats[dateStr].count++
-            }
-          }
-        })
-
-        // Sort by actual date (not string comparison) and take last 30 entries
-        const sortedDays = Object.values(dailyStats)
-          .map(d => ({
-            ...d,
-            dateObj: new Date(d.date + 'T00:00:00'), // Parse as local time
-            displayDate: new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric'
-            })
-          }))
-          .filter(d => !isNaN(d.dateObj.getTime())) // Filter out invalid dates
-          .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime()) // Sort by timestamp
-          .slice(-30)
-
-        setCompletionsByDay(sortedDays)
-      }
+      processCompletionsData(completions)
     } catch (error) {
       console.error('Error loading dashboard data:', error)
     }
@@ -322,30 +374,8 @@ function EfficiencyDashboard() {
           )}
         </div>
 
-        {/* Controls */}
+        {/* Train Filter Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Refresh Button */}
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--border)',
-              background: 'var(--accent)',
-              color: 'white',
-              fontSize: '0.9rem',
-              cursor: isRefreshing ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              opacity: isRefreshing ? 0.7 : 1
-            }}
-          >
-            <RefreshCw size={16} className={isRefreshing ? 'spinning' : ''} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
-
           {/* Train Filter */}
           <Filter size={20} style={{ color: 'var(--text-muted)' }} />
           <select

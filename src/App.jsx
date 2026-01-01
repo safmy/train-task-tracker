@@ -1,11 +1,22 @@
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { Train, BarChart3, Settings, ClipboardList } from 'lucide-react'
+import { Train, BarChart3, Settings, ClipboardList, RefreshCw } from 'lucide-react'
 import TaskTracker from './components/TaskTracker'
 import EfficiencyDashboard from './components/EfficiencyDashboard'
 import AdminPanel from './components/AdminPanel'
 import './App.css'
 
 function App() {
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = () => {
+    setIsRefreshing(true)
+    // Dispatch custom event for dashboard to listen to
+    window.dispatchEvent(new CustomEvent('refreshDashboardData'))
+    // Reset after animation
+    setTimeout(() => setIsRefreshing(false), 2000)
+  }
+
   return (
     <BrowserRouter>
       <div className="app">
@@ -27,6 +38,21 @@ function App() {
               <Settings size={20} />
               <span>Admin</span>
             </NavLink>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="nav-link refresh-btn"
+              style={{
+                background: 'var(--accent)',
+                border: 'none',
+                cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                opacity: isRefreshing ? 0.7 : 1,
+              }}
+              title="Refresh data from server"
+            >
+              <RefreshCw size={20} className={isRefreshing ? 'spinning' : ''} />
+              <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
           </div>
         </nav>
 

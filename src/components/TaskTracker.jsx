@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { Check, Clock, Circle, X, Upload, Train, AlertCircle } from 'lucide-react'
+import { Check, Clock, Circle, X, Upload, Train, AlertCircle, Filter, ChevronDown, ChevronUp } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 function TaskTracker() {
@@ -23,6 +23,11 @@ function TaskTracker() {
     notes: ''
   })
   const fileInputRef = useRef(null)
+
+  // Filter states
+  const [phaseFilter, setPhaseFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -132,11 +137,20 @@ function TaskTracker() {
     }
   }
 
+  // Distinct color steps from red (0%) to green (100%)
   const getCarColor = (percent) => {
-    if (percent >= 80) return '#10B981'
-    if (percent >= 50) return '#F59E0B'
-    if (percent > 0) return '#EF4444'
-    return '#475569'
+    if (percent === 100) return '#10B981' // Green - complete
+    if (percent >= 90) return '#22C55E'   // Light green
+    if (percent >= 80) return '#84CC16'   // Lime
+    if (percent >= 70) return '#A3E635'   // Yellow-lime
+    if (percent >= 60) return '#FACC15'   // Yellow
+    if (percent >= 50) return '#FCD34D'   // Light yellow
+    if (percent >= 40) return '#FBBF24'   // Amber
+    if (percent >= 30) return '#F59E0B'   // Orange
+    if (percent >= 20) return '#FB923C'   // Light orange
+    if (percent >= 10) return '#F97316'   // Dark orange
+    if (percent > 0) return '#EF4444'     // Red
+    return '#475569'                      // Gray - no progress
   }
 
   const openTaskModal = (task) => {
@@ -432,8 +446,8 @@ function TaskTracker() {
 
   return (
     <div className="task-tracker">
-      {/* Upload Section */}
-      <div className="upload-section">
+      {/* Upload Section and Filters */}
+      <div className="upload-section" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           type="file"
           ref={fileInputRef}
@@ -449,6 +463,71 @@ function TaskTracker() {
           <Upload size={16} />
           {uploading ? 'Uploading...' : 'Upload Excel'}
         </button>
+
+        {/* Filter Controls */}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginLeft: 'auto' }}>
+          <Filter size={18} style={{ color: 'var(--text-muted)' }} />
+
+          {/* Phase Filter */}
+          <select
+            value={phaseFilter}
+            onChange={(e) => setPhaseFilter(e.target.value)}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text)',
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              minWidth: '120px'
+            }}
+          >
+            <option value="all">All Phases</option>
+            {[...new Set(trains.map(t => t.phase).filter(Boolean))].sort().map(phase => (
+              <option key={phase} value={phase}>{phase}</option>
+            ))}
+          </select>
+
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text)',
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              minWidth: '130px'
+            }}
+          >
+            <option value="all">All Tasks</option>
+            <option value="completed">Completed</option>
+            <option value="in_progress">In Progress</option>
+            <option value="pending">Not Started</option>
+          </select>
+
+          {(phaseFilter !== 'all' || statusFilter !== 'all') && (
+            <button
+              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); }}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                fontSize: '0.75rem',
+                cursor: 'pointer'
+              }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
         {uploadStatus && (
           <div className={`upload-status ${uploadStatus.type}`}>
             <AlertCircle size={16} />
@@ -460,7 +539,9 @@ function TaskTracker() {
       {/* Train Selector */}
       {trains.length > 0 && (
         <div className="unit-selector">
-          {trains.map(train => (
+          {trains
+            .filter(train => phaseFilter === 'all' || train.phase === phaseFilter)
+            .map(train => (
             <button
               key={train.name}
               className={`unit-btn ${selectedTrain?.name === train.name ? 'active' : ''}`}
@@ -540,56 +621,82 @@ function TaskTracker() {
       {/* Task List for Selected Car */}
       {selectedCar && (
         <div className="task-panel">
-          <div className="task-panel-header">
-            <h2>{selectedCar.car_types?.name} - Car #{selectedCar.car_number}</h2>
-            <div className="task-panel-stats">
-              {(() => {
-                const p = getCarProgress(selectedCar)
-                return `${p.completed} of ${p.total} tasks completed (${p.percent}%)`
-              })()}
+          <div
+            className="task-panel-header"
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            onClick={() => setIsTaskListCollapsed(!isTaskListCollapsed)}
+          >
+            <div>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {selectedCar.car_types?.name} - Car #{selectedCar.car_number}
+                {isTaskListCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+              </h2>
+              <div className="task-panel-stats">
+                {(() => {
+                  const p = getCarProgress(selectedCar)
+                  const filteredTasks = (selectedCar.task_completions || []).filter(t =>
+                    statusFilter === 'all' || t.status === statusFilter
+                  )
+                  if (statusFilter !== 'all') {
+                    return `${filteredTasks.length} ${statusFilter.replace('_', ' ')} tasks (${p.completed}/${p.total} total completed - ${p.percent}%)`
+                  }
+                  return `${p.completed} of ${p.total} tasks completed (${p.percent}%)`
+                })()}
+              </div>
             </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Click to {isTaskListCollapsed ? 'expand' : 'collapse'}
+            </span>
           </div>
 
-          <div className="task-list">
-            {(selectedCar.task_completions || [])
-              .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-              .map(task => (
-              <div
-                key={task.id}
-                className={`task-item ${task.status}`}
-                onClick={() => openTaskModal(task)}
-              >
-                <div className="task-status">
-                  <span className={`status-badge status-${task.status}`}>
-                    {getStatusIcon(task.status)}
-                  </span>
+          {!isTaskListCollapsed && (
+            <div className="task-list">
+              {(selectedCar.task_completions || [])
+                .filter(task => statusFilter === 'all' || task.status === statusFilter)
+                .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                .map(task => (
+                <div
+                  key={task.id}
+                  className={`task-item ${task.status}`}
+                  onClick={() => openTaskModal(task)}
+                >
+                  <div className="task-status">
+                    <span className={`status-badge status-${task.status}`}>
+                      {getStatusIcon(task.status)}
+                    </span>
+                  </div>
+                  <div className="task-info">
+                    <div className="task-name">{task.task_name}</div>
+                    {task.description && (
+                      <div className="task-desc">{task.description}</div>
+                    )}
+                  </div>
+                  <div className="task-meta">
+                    {task.completed_by?.length > 0 && (
+                      <div className="task-initials">
+                        {task.completed_by.slice(0, 4).map((init, i) => (
+                          <span key={i} className="initial-badge">{init}</span>
+                        ))}
+                        {task.completed_by.length > 4 && (
+                          <span className="initial-more">+{task.completed_by.length - 4}</span>
+                        )}
+                      </div>
+                    )}
+                    {task.completed_at && (
+                      <div className="task-date">
+                        {new Date(task.completed_at).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="task-info">
-                  <div className="task-name">{task.task_name}</div>
-                  {task.description && (
-                    <div className="task-desc">{task.description}</div>
-                  )}
+              ))}
+              {(selectedCar.task_completions || []).filter(task => statusFilter === 'all' || task.status === statusFilter).length === 0 && (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  No tasks match the current filter
                 </div>
-                <div className="task-meta">
-                  {task.completed_by?.length > 0 && (
-                    <div className="task-initials">
-                      {task.completed_by.slice(0, 4).map((init, i) => (
-                        <span key={i} className="initial-badge">{init}</span>
-                      ))}
-                      {task.completed_by.length > 4 && (
-                        <span className="initial-more">+{task.completed_by.length - 4}</span>
-                      )}
-                    </div>
-                  )}
-                  {task.completed_at && (
-                    <div className="task-date">
-                      {new Date(task.completed_at).toLocaleDateString()}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
