@@ -1,0 +1,80 @@
+{
+  "phase_1": {
+    "folder": "Phase 1 - T01-T06 - Program Lift (Bogies, Line Contactors & Catch Back) )",
+    "worksheets_folder": "05 Work To Sheets TFOS - Phase One A",
+    "trains": {
+      "T01": {"units": ["96067", "96122"], "suffix": ""},
+      "T02": {"units": ["96051", "96062"], "suffix": ""},
+      "T03": {"units": ["96099", "96104"], "suffix": " - DeIcer"},
+      "T04": {"units": ["96075", "96118"], "suffix": " - DeIcer"},
+      "T05": {"units": ["96113", "96018"], "suffix": ""},
+      "T06": {"units": ["96017", "96078"], "suffix": ""}
+    }
+  },
+  "phase_2": {
+    "folder": "Phase 2 - T07 - T31 - Program Lift (P1, P2 & Catch Back)",
+    "worksheets_folder": "05 Work To Sheets TFOS - Phase One A",
+    "trains": {
+      "T07": {"units": ["96011", "96040"], "suffix": ""},
+      "T08": {"units": ["96097", "96086"], "suffix": " - DeIcer"},
+      "T09": {"units": ["96043", "96022"], "suffix": ""},
+      "T10": {"units": ["96109", "96110"], "suffix": ""},
+      "T11": {"units": ["96019", "96066"], "suffix": ""},
+      "T12": {"units": ["96101", "96058"], "suffix": ""},
+      "T13": {"units": ["96039", "96034"], "suffix": ""},
+      "T14": {"units": ["96055", "96044"], "suffix": ""},
+      "T15": {"units": ["96007", "96096"], "suffix": ""},
+      "T16": {"units": ["96057", "96090"], "suffix": ""},
+      "T17": {"units": ["96031", "96032"], "suffix": ""},
+      "T18": {"units": ["96084", "96083"], "suffix": ""},
+      "T19": {"units": ["96015", "96082"], "suffix": ""},
+      "T20": {"units": ["96070", "96061"], "suffix": ""},
+      "T21": {"units": ["96063", "96020"], "suffix": ""},
+      "T22": {"units": ["96013", "96076"], "suffix": ""},
+      "T23": {"units": ["96103", "96100"], "suffix": ""},
+      "T24": {"units": ["96085", "96106"], "suffix": ""},
+      "T25": {"units": ["96081", "96012"], "suffix": ""},
+      "T26": {"units": ["96005", "96008"], "suffix": ""},
+      "T27": {"units": ["96093", "96054"], "suffix": ""},
+      "T28": {"units": ["96038", "96003"], "suffix": ""},
+      "T29": {"units": ["96053", "96072"], "suffix": ""},
+      "T30": {"units": ["96041", "96006"], "suffix": ""},
+      "T31": {"units": ["96047", "96048"], "suffix": ""}
+    }
+  },
+  "phase_3": {
+    "folder": "Phase 3 - T32 - T62 - Program Lift (P1, P2, P3, P3.1, P3.2 P3.3 & Catch Back))",
+    "worksheets_folder": "05 Work To Sheets TFOS",
+    "trains": {
+      "T32": {"units": ["96123", "96004"], "suffix": ""},
+      "T33": {"units": ["96021", "96094"], "suffix": " - DeIcer"},
+      "T34": {"units": ["96025", "96026"], "suffix": ""},
+      "T35": {"units": ["96030", "96029"], "suffix": ""},
+      "T36": {"units": ["96037", "96064"], "suffix": ""},
+      "T37": {"units": ["96102", "96089"], "suffix": ""},
+      "T38": {"units": ["96027", "96060"], "suffix": ""},
+      "T39": {"units": ["96024", "96079"], "suffix": ""},
+      "T40": {"units": ["96087", "96098"], "suffix": ""},
+      "T41": {"units": ["96119", "96120"], "suffix": ""},
+      "T42": {"units": ["96071", "96116"], "suffix": ""},
+      "T43": {"units": ["96073", "96074"], "suffix": ""},
+      "T44": {"units": ["96115", "96124"], "suffix": ""},
+      "T45": {"units": ["96068", "96069"], "suffix": ""},
+      "T46": {"units": ["96016", "96117"], "suffix": ""},
+      "T47": {"units": ["96052", "96077"], "suffix": ""},
+      "T48": {"units": ["96105", "96114"], "suffix": ""},
+      "T49": {"units": ["96050", "96125"], "suffix": ""},
+      "T50": {"units": ["96010", "96009"], "suffix": ""},
+      "T51": {"units": ["96042", "96107"], "suffix": ""},
+      "T52": {"units": ["96028", "96059"], "suffix": ""},
+      "T53": {"units": ["96046", "96045"], "suffix": ""},
+      "T54": {"units": ["96092", "96023"], "suffix": ""},
+      "T55": {"units": ["96002", "96001"], "suffix": ""},
+      "T56": {"units": ["96111", "96112"], "suffix": ""},
+      "T57": {"units": ["96014", "96121"], "suffix": ""},
+      "T58": {"units": ["96108", "96095"], "suffix": ""},
+      "T59": {"units": ["96088", "96065"], "suffix": ""},
+      "T60": {"units": ["96080", "96091"], "suffix": ""}
+    }
+  }
+}
