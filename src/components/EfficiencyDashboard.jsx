@@ -6,8 +6,53 @@ import {
 } from 'recharts'
 import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
 
-const CACHE_KEY = 'train_tracker_dashboard_cache'
-const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp'
+const CACHE_KEY = 'train_tracker_dashboard_cache_v2'
+const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp_v2'
+
+// Compress data for localStorage (only keep essential fields)
+const compressForCache = (cars, completions) => {
+  // Only keep essential fields to reduce size
+  const compressedCars = cars.map(c => ({
+    id: c.id,
+    unit_id: c.unit_id,
+    tn: c.train_units?.train_number // train_number
+  }))
+
+  const compressedCompletions = completions.map(c => ({
+    id: c.id,
+    car_id: c.car_id,
+    s: c.status, // status
+    p: c.phase, // phase
+    ca: c.completed_at, // completed_at
+    tn: c.cars?.train_units?.train_number, // train_number
+    ti: c.teams?.id, // team_id
+    tm: c.teams?.name, // team_name
+    tc: c.teams?.color // team_color
+  }))
+
+  return { cars: compressedCars, completions: compressedCompletions }
+}
+
+// Decompress data from localStorage
+const decompressFromCache = (cached) => {
+  const cars = cached.cars.map(c => ({
+    id: c.id,
+    unit_id: c.unit_id,
+    train_units: { train_number: c.tn }
+  }))
+
+  const completions = cached.completions.map(c => ({
+    id: c.id,
+    car_id: c.car_id,
+    status: c.s,
+    phase: c.p,
+    completed_at: c.ca,
+    cars: { train_units: { train_number: c.tn } },
+    teams: c.ti ? { id: c.ti, name: c.tm, color: c.tc } : null
+  }))
+
+  return { cars, completions }
+}
 
 // Team roster - who belongs to each team
 const TEAM_ROSTER = {
@@ -45,21 +90,36 @@ function EfficiencyDashboard() {
     // Check for cached data on initial load - load directly from localStorage
     const cached = localStorage.getItem(CACHE_KEY)
     const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
+
+    console.log('Checking cache:', { hasCached: !!cached, hasTimestamp: !!timestamp })
+
     if (cached && timestamp) {
       try {
         const parsedCache = JSON.parse(cached)
-        setCachedData(parsedCache)
+        console.log('Cache found, decompressing...', {
+          cars: parsedCache.cars?.length,
+          completions: parsedCache.completions?.length
+        })
+
+        // Decompress the cached data
+        const decompressed = decompressFromCache(parsedCache)
+        setCachedData(decompressed)
         setCacheTimestamp(new Date(timestamp))
-        // Load dashboard with cached data immediately
-        loadDashboardDataWithCache(parsedCache)
+
+        // Load dashboard with cached data immediately - NO server fetch
+        loadDashboardDataWithCache(decompressed)
+        return // Exit early - don't fetch from server
       } catch (e) {
         console.error('Error parsing cache:', e)
-        loadDashboardData(true) // Force refresh if cache is invalid
+        // Clear invalid cache
+        localStorage.removeItem(CACHE_KEY)
+        localStorage.removeItem(CACHE_TIMESTAMP_KEY)
       }
-    } else {
-      // No cache, load from server
-      loadDashboardData(true)
     }
+
+    // No valid cache - must load from server
+    console.log('No cache found, loading from server...')
+    loadDashboardData(true)
 
     // Listen for refresh events from navbar
     const handleRefreshEvent = () => {
@@ -294,15 +354,30 @@ function EfficiencyDashboard() {
         cars(*, train_units(*), car_types(*))
       `)
 
-      // Cache the data
-      const cacheData = { cars: allCars, completions: allCompletions }
+      // Cache the data (compressed to fit in localStorage)
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData))
+        const compressed = compressForCache(allCars, allCompletions)
+        const compressedStr = JSON.stringify(compressed)
+        console.log('Caching data, size:', (compressedStr.length / 1024 / 1024).toFixed(2), 'MB')
+
+        localStorage.setItem(CACHE_KEY, compressedStr)
         localStorage.setItem(CACHE_TIMESTAMP_KEY, new Date().toISOString())
-        setCachedData(cacheData)
+
+        // Store decompressed version in state for filter changes
+        setCachedData({ cars: allCars, completions: allCompletions })
         setCacheTimestamp(new Date())
+        console.log('Cache saved successfully!')
       } catch (e) {
-        console.warn('Could not cache data to localStorage:', e)
+        console.error('Could not cache data to localStorage:', e.name, e.message)
+        // If quota exceeded, try to clear old caches
+        if (e.name === 'QuotaExceededError') {
+          console.log('Storage quota exceeded, clearing old data...')
+          localStorage.removeItem(CACHE_KEY)
+          localStorage.removeItem(CACHE_TIMESTAMP_KEY)
+          // Also clear old version cache keys if they exist
+          localStorage.removeItem('train_tracker_dashboard_cache')
+          localStorage.removeItem('train_tracker_dashboard_timestamp')
+        }
       }
 
       // Filter cars by selected train
