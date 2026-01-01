@@ -342,24 +342,42 @@
         const rows = document.querySelectorAll('[data-automationid^="row-"]:not([data-automationid="row-header"])');
 
         rows.forEach(row => {
-            const nameSpan = row.querySelector('[data-automationid="field-LinkFilename"] span[title]');
+            const nameCell = row.querySelector('[data-automationid="field-LinkFilename"]');
+            const nameSpan = nameCell ? nameCell.querySelector('span[title]') : null;
+            const nameButton = nameCell ? nameCell.querySelector('button') : null;
+            const nameLink = nameCell ? nameCell.querySelector('a') : null;
             const modifiedCell = row.querySelector('[data-automationid="field-Modified"]');
             const iconCell = row.querySelector('[data-automationid="field-DocIcon"]');
 
-            if (nameSpan) {
-                const name = nameSpan.getAttribute('title') || nameSpan.textContent;
+            if (nameSpan || nameButton || nameLink) {
+                const textEl = nameSpan || nameButton || nameLink;
+                const name = textEl.getAttribute('title') || textEl.textContent;
                 const modified = modifiedCell ? (modifiedCell.getAttribute('title') || modifiedCell.textContent) : '';
 
-                // Determine if folder or file
-                const isFolder = iconCell && iconCell.querySelector('svg[viewBox="0 0 32 32"]');
-                const isExcel = iconCell && iconCell.querySelector('img[alt*="xls"]');
+                // Determine if folder or file - check multiple indicators
+                const hasFolderIcon = iconCell && (
+                    iconCell.querySelector('svg') ||
+                    iconCell.querySelector('i[data-icon-name="FabricFolder"]') ||
+                    iconCell.querySelector('[data-icon-name*="Folder"]')
+                );
+                const isExcel = name.toLowerCase().endsWith('.xlsx') ||
+                               name.toLowerCase().endsWith('.xlsm') ||
+                               (iconCell && iconCell.querySelector('img[alt*="xls"]'));
+
+                // If it's not an Excel file and doesn't have a file extension, treat as folder
+                const hasExtension = /\.[a-z]{2,4}$/i.test(name);
+                const isFolder = !hasExtension || !!hasFolderIcon;
+
+                // Get the best clickable element - prefer button or link, fallback to span
+                const clickElement = nameButton || nameLink || nameSpan;
 
                 items.push({
                     name,
                     modified,
-                    isFolder: !!isFolder,
+                    isFolder: isFolder && !isExcel,
                     isExcel: !!isExcel,
-                    element: nameSpan
+                    element: clickElement,
+                    row: row
                 });
             }
         });
@@ -379,18 +397,51 @@
     }
 
     // Navigate to a folder by clicking
-    async function navigateToFolder(element) {
+    async function navigateToFolder(item) {
         return new Promise((resolve) => {
-            // Double-click to open folder
-            const event = new MouseEvent('dblclick', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
-            element.dispatchEvent(event);
+            const element = item.element;
+            const row = item.row;
+
+            try {
+                // Method 1: Double-click on the row (most reliable for SharePoint)
+                if (row) {
+                    const dblClickEvent = document.createEvent('MouseEvents');
+                    dblClickEvent.initEvent('dblclick', true, true);
+                    row.dispatchEvent(dblClickEvent);
+                }
+
+                // Method 2: Also try clicking the element directly after a short delay
+                setTimeout(() => {
+                    if (element) {
+                        element.click();
+                        // Try double-click on element too
+                        setTimeout(() => element.click(), 50);
+                    }
+                }, 200);
+
+            } catch (e) {
+                console.log('Primary click method failed, trying alternatives', e);
+
+                // Method 3: Focus and Enter key
+                try {
+                    if (element) {
+                        element.focus();
+                        const enterEvent = new KeyboardEvent('keypress', {
+                            key: 'Enter',
+                            code: 'Enter',
+                            keyCode: 13,
+                            which: 13,
+                            bubbles: true
+                        });
+                        element.dispatchEvent(enterEvent);
+                    }
+                } catch (e2) {
+                    console.log('Enter key method also failed', e2);
+                }
+            }
 
             // Wait for page to load
-            setTimeout(resolve, 2000);
+            setTimeout(resolve, 3000);
         });
     }
 
@@ -526,8 +577,8 @@
         for (const folder of foldersToVisit) {
             log(`Entering folder: ${folder.name}`, 'info');
 
-            // Click to navigate
-            await navigateToFolder(folder.element);
+            // Click to navigate - pass the whole folder item
+            await navigateToFolder(folder);
             await waitForContent();
 
             // Scan this folder
