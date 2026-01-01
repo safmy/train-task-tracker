@@ -4,10 +4,19 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
 } from 'recharts'
-import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
+
+// Team roster - who belongs to each team
+const TEAM_ROSTER = {
+  'Team A': ['AS', 'JT', 'CB', 'JD', 'KM', 'CP', 'KA', 'TFOS'],
+  'Team B': ['LN', 'NA', 'PS', 'AOO', 'JN', 'DK', 'DH', 'JL'],
+  'Team C': ['SC', 'MA', 'CC', 'OM', 'AL', 'VN', 'RN', 'LVN'],
+  'Team D': ['SA', 'MR', 'AR', 'DB', 'GT', 'UQ', 'BP', 'RB']
+}
 
 function EfficiencyDashboard() {
   const [loading, setLoading] = useState(true)
+  const [loadingProgress, setLoadingProgress] = useState('')
   const [stats, setStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -21,6 +30,8 @@ function EfficiencyDashboard() {
   const [selectedTimeRange, setSelectedTimeRange] = useState('all')
   const [trains, setTrains] = useState([])
   const [selectedTrain, setSelectedTrain] = useState('all')
+  const [sortBy, setSortBy] = useState('train') // 'train' or 'completion'
+  const [showTeamRoster, setShowTeamRoster] = useState(false)
 
   useEffect(() => {
     loadTrains()
@@ -47,15 +58,44 @@ function EfficiencyDashboard() {
     }
   }
 
+  // Fetch all data with pagination (Supabase has 1000 row limit)
+  const fetchAllData = async (table, select, filterFn = null) => {
+    const allData = []
+    const batchSize = 1000
+    let offset = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(select)
+        .range(offset, offset + batchSize - 1)
+
+      if (error) {
+        console.error(`Error fetching ${table}:`, error)
+        break
+      }
+
+      if (data && data.length > 0) {
+        allData.push(...data)
+        offset += batchSize
+        setLoadingProgress(`Loading ${table}: ${allData.length} records...`)
+        hasMore = data.length === batchSize
+      } else {
+        hasMore = false
+      }
+    }
+
+    return filterFn ? allData.filter(filterFn) : allData
+  }
+
   const loadDashboardData = async () => {
     setLoading(true)
+    setLoadingProgress('Starting data load...')
     try {
-      // Get all cars with their train unit info
-      let carsQuery = supabase
-        .from('cars')
-        .select('*, train_units(*), car_types(*)')
-
-      const { data: allCars } = await carsQuery
+      // Get all cars with their train unit info (with pagination)
+      setLoadingProgress('Loading cars...')
+      const allCars = await fetchAllData('cars', '*, train_units(*), car_types(*)')
 
       // Filter cars by selected train
       let filteredCarIds = []
@@ -69,16 +109,13 @@ function EfficiencyDashboard() {
         filteredCarIds = allCars.map(c => c.id)
       }
 
-      // Get all completions with related data
-      let completionsQuery = supabase
-        .from('task_completions')
-        .select(`
-          *,
-          teams(*),
-          cars(*, train_units(*), car_types(*))
-        `)
-
-      const { data: allCompletions } = await completionsQuery
+      // Get all completions with pagination
+      setLoadingProgress('Loading task completions...')
+      const allCompletions = await fetchAllData('task_completions', `
+        *,
+        teams(*),
+        cars(*, train_units(*), car_types(*))
+      `)
 
       // Filter completions by selected train
       let completions = allCompletions || []
@@ -86,6 +123,7 @@ function EfficiencyDashboard() {
         completions = allCompletions.filter(c => filteredCarIds.includes(c.car_id))
       }
 
+      setLoadingProgress('Processing data...')
       if (completions) {
         // Calculate stats from actual task_completions data
         const totalTasks = completions.length
@@ -105,9 +143,11 @@ function EfficiencyDashboard() {
         const teamStats = {}
         completions.forEach(c => {
           if (c.teams) {
+            // Rename "Night Shift" to "Team D"
+            const teamName = c.teams.name === 'Night Shift' ? 'Team D' : c.teams.name
             if (!teamStats[c.teams.id]) {
               teamStats[c.teams.id] = {
-                name: c.teams.name,
+                name: teamName,
                 color: c.teams.color,
                 completed: 0,
                 inProgress: 0,
@@ -120,70 +160,68 @@ function EfficiencyDashboard() {
           }
         })
 
+        // Sort by number of completed tasks (descending) for ranking
         const teamData = Object.values(teamStats).map(team => ({
           ...team,
           efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0
-        })).sort((a, b) => b.efficiency - a.efficiency)
+        })).sort((a, b) => b.completed - a.completed)
 
         setTeamPerformance(teamData)
 
-        // Calculate unit progress from filtered completions
-        const unitStats = {}
+        // Calculate train progress (aggregate by train number T01-T62)
+        const trainStats = {}
         completions.forEach(c => {
-          const unitId = c.cars?.train_units?.id
-          const unitNumber = c.cars?.train_units?.unit_number
           const trainNumber = c.cars?.train_units?.train_number
-          if (unitId) {
-            if (!unitStats[unitId]) {
-              unitStats[unitId] = {
-                name: `T${String(trainNumber).padStart(2, '0')} - ${unitNumber}`,
-                unitNumber,
+          if (trainNumber) {
+            const trainKey = `T${String(trainNumber).padStart(2, '0')}`
+            if (!trainStats[trainKey]) {
+              trainStats[trainKey] = {
+                name: trainKey,
                 trainNumber,
                 totalTasks: 0,
-                completedTasks: 0
+                completedTasks: 0,
+                inProgressTasks: 0
               }
             }
-            unitStats[unitId].totalTasks++
+            trainStats[trainKey].totalTasks++
             if (c.status === 'completed') {
-              unitStats[unitId].completedTasks++
+              trainStats[trainKey].completedTasks++
+            } else if (c.status === 'in_progress') {
+              trainStats[trainKey].inProgressTasks++
             }
           }
         })
 
-        const unitData = Object.values(unitStats).map(unit => ({
-          ...unit,
-          percent: unit.totalTasks > 0 ? Math.round((unit.completedTasks / unit.totalTasks) * 100) : 0
-        })).sort((a, b) => {
-          // Sort by train number first, then unit number
-          if (a.trainNumber !== b.trainNumber) return a.trainNumber - b.trainNumber
-          return a.unitNumber?.localeCompare(b.unitNumber)
-        })
+        const trainData = Object.values(trainStats).map(train => ({
+          ...train,
+          percent: train.totalTasks > 0 ? Math.round((train.completedTasks / train.totalTasks) * 100) : 0
+        }))
 
-        setUnitProgress(unitData)
+        setUnitProgress(trainData)
 
-        // Calculate completions by day (last 14 days)
+        // Calculate completions by day (from actual data, not just last 14 days)
         const dailyStats = {}
-        const now = new Date()
-        for (let i = 13; i >= 0; i--) {
-          const date = new Date(now)
-          date.setDate(date.getDate() - i)
-          const dateStr = date.toISOString().split('T')[0]
-          dailyStats[dateStr] = { date: dateStr, count: 0 }
-        }
 
         completions.forEach(c => {
           if (c.completed_at) {
             const dateStr = c.completed_at.split('T')[0]
-            if (dailyStats[dateStr]) {
-              dailyStats[dateStr].count++
+            if (!dailyStats[dateStr]) {
+              dailyStats[dateStr] = { date: dateStr, count: 0 }
             }
+            dailyStats[dateStr].count++
           }
         })
 
-        setCompletionsByDay(Object.values(dailyStats).map(d => ({
-          ...d,
-          displayDate: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        })))
+        // Sort by date and take last 30 entries (or all if less)
+        const sortedDays = Object.values(dailyStats)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(-30)
+          .map(d => ({
+            ...d,
+            displayDate: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          }))
+
+        setCompletionsByDay(sortedDays)
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error)
@@ -203,10 +241,23 @@ function EfficiencyDashboard() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        Loading dashboard...
+        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+          <div>Loading dashboard...</div>
+          <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+            {loadingProgress}
+          </div>
+        </div>
       </div>
     )
   }
+
+  // Sort train progress data
+  const sortedUnitProgress = [...unitProgress].sort((a, b) => {
+    if (sortBy === 'completion') {
+      return b.percent - a.percent // High to low completion
+    }
+    return a.trainNumber - b.trainNumber // T01 to T62
+  })
 
   return (
     <div className="efficiency-dashboard">
@@ -334,29 +385,39 @@ function EfficiencyDashboard() {
         {/* Daily Completions Chart */}
         <div className="chart-container">
           <div className="chart-header">
-            <h3 className="chart-title">Daily Completions (Last 14 Days)</h3>
+            <h3 className="chart-title">
+              Completion History {completionsByDay.length > 0 && `(${completionsByDay.length} days with activity)`}
+            </h3>
           </div>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={completionsByDay}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-              <XAxis dataKey="displayDate" stroke="#94a3b8" fontSize={12} />
-              <YAxis stroke="#94a3b8" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  background: '#1e293b',
-                  border: '1px solid #475569',
-                  borderRadius: '8px'
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="count"
-                stroke="#3B82F6"
-                strokeWidth={2}
-                dot={{ fill: '#3B82F6' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {completionsByDay.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={completionsByDay}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                <XAxis dataKey="displayDate" stroke="#94a3b8" fontSize={10} angle={-45} textAnchor="end" height={60} />
+                <YAxis stroke="#94a3b8" fontSize={12} />
+                <Tooltip
+                  contentStyle={{
+                    background: '#1e293b',
+                    border: '1px solid #475569',
+                    borderRadius: '8px'
+                  }}
+                  formatter={(value) => [`${value} tasks`, 'Completed']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#3B82F6"
+                  strokeWidth={2}
+                  dot={{ fill: '#3B82F6' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+              <p>No completion dates recorded in the data.</p>
+              <p style={{ fontSize: '0.875rem' }}>Tasks marked as completed do not have recorded completion timestamps.</p>
+            </div>
+          )}
         </div>
 
         {/* Task Status Pie Chart */}
@@ -392,31 +453,121 @@ function EfficiencyDashboard() {
         </div>
       </div>
 
-      {/* Unit Progress */}
+      {/* Train Progress */}
       <div className="chart-container">
-        <div className="chart-header">
+        <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <h3 className="chart-title">
             {selectedTrain === 'all'
-              ? `Progress by Train Unit (Top 20 of ${unitProgress.length})`
-              : `Progress by Unit - T${String(selectedTrain).padStart(2, '0')}`}
+              ? `Progress by Train (${unitProgress.length} trains)`
+              : `Progress - T${String(selectedTrain).padStart(2, '0')}`}
           </h3>
+          {selectedTrain === 'all' && (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setSortBy('train')}
+                style={{
+                  padding: '0.375rem 0.75rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border)',
+                  background: sortBy === 'train' ? 'var(--accent)' : 'transparent',
+                  color: sortBy === 'train' ? 'white' : 'var(--text)',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                <ArrowUpDown size={12} /> By Train (T01-T62)
+              </button>
+              <button
+                onClick={() => setSortBy('completion')}
+                style={{
+                  padding: '0.375rem 0.75rem',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border)',
+                  background: sortBy === 'completion' ? 'var(--accent)' : 'transparent',
+                  color: sortBy === 'completion' ? 'white' : 'var(--text)',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                <ArrowUpDown size={12} /> By Completion %
+              </button>
+            </div>
+          )}
         </div>
-        <ResponsiveContainer width="100%" height={selectedTrain === 'all' ? 500 : 300}>
-          <BarChart data={selectedTrain === 'all' ? unitProgress.slice(0, 20) : unitProgress} layout="vertical">
+        <ResponsiveContainer width="100%" height={selectedTrain === 'all' ? Math.max(800, sortedUnitProgress.length * 25) : 300}>
+          <BarChart data={sortedUnitProgress} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
             <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
-            <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={12} width={100} />
+            <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={11} width={60} />
             <Tooltip
               contentStyle={{
                 background: '#1e293b',
                 border: '1px solid #475569',
                 borderRadius: '8px'
               }}
-              formatter={(value) => [`${value}%`, 'Completion']}
+              formatter={(value, name, props) => {
+                const item = props.payload
+                return [`${value}% (${item.completedTasks}/${item.totalTasks} tasks)`, 'Completion']
+              }}
             />
             <Bar dataKey="percent" fill="#3B82F6" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Team Roster */}
+      <div className="chart-container" style={{ marginTop: '1.5rem' }}>
+        <div
+          className="chart-header"
+          style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          onClick={() => setShowTeamRoster(!showTeamRoster)}
+        >
+          <h3 className="chart-title">
+            <Users size={20} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />
+            Team Roster (Click to {showTeamRoster ? 'hide' : 'show'})
+          </h3>
+          {showTeamRoster ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </div>
+        {showTeamRoster && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', padding: '1rem 0' }}>
+            {Object.entries(TEAM_ROSTER).map(([teamName, members]) => (
+              <div key={teamName} style={{
+                background: 'var(--bg)',
+                padding: '1rem',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)'
+              }}>
+                <h4 style={{
+                  marginBottom: '0.75rem',
+                  color: teamName === 'Team A' ? '#3B82F6' :
+                         teamName === 'Team B' ? '#10B981' :
+                         teamName === 'Team C' ? '#F59E0B' : '#8B5CF6',
+                  fontWeight: '600'
+                }}>
+                  {teamName}
+                </h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {members.map(member => (
+                    <span key={member} style={{
+                      background: 'var(--bg-card)',
+                      padding: '0.25rem 0.5rem',
+                      borderRadius: '0.25rem',
+                      fontSize: '0.875rem'
+                    }}>
+                      {member}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Team Performance Table */}
