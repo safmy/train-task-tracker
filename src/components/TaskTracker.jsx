@@ -29,6 +29,7 @@ function TaskTracker() {
   // Filter states
   const [phaseFilter, setPhaseFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [taskTextFilter, setTaskTextFilter] = useState('') // Text/regex filter for tasks
   const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
   const [collapsedPhases, setCollapsedPhases] = useState({}) // Track which phases are collapsed
   const [isTrainSelectorCollapsed, setIsTrainSelectorCollapsed] = useState(false)
@@ -808,9 +809,26 @@ function TaskTracker() {
             <option value="pending">Not Started</option>
           </select>
 
-          {(phaseFilter !== 'all' || statusFilter !== 'all') && (
+          {/* Text/Regex Filter */}
+          <input
+            type="text"
+            value={taskTextFilter}
+            onChange={(e) => setTaskTextFilter(e.target.value)}
+            placeholder="Filter tasks (regex)..."
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--text)',
+              fontSize: '0.875rem',
+              minWidth: '180px'
+            }}
+          />
+
+          {(phaseFilter !== 'all' || statusFilter !== 'all' || taskTextFilter) && (
             <button
-              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); }}
+              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); setTaskTextFilter(''); }}
               style={{
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.5rem',
@@ -879,10 +897,14 @@ function TaskTracker() {
               {/* All Trains Toggle */}
               <button
                 onClick={() => {
-                  setViewAllTrains(!viewAllTrains)
-                  if (!viewAllTrains) {
+                  const newViewAllTrains = !viewAllTrains
+                  setViewAllTrains(newViewAllTrains)
+                  if (newViewAllTrains) {
                     setSelectedTrains([])
                     setSelectedCar(null)
+                    setViewAllCars(true) // Automatically show all cars when viewing all trains
+                  } else {
+                    setViewAllCars(false)
                   }
                 }}
                 style={{
@@ -1277,17 +1299,31 @@ function TaskTracker() {
               </h2>
               <div className="task-panel-stats">
                 {(() => {
+                  // Build regex for text filter
+                  let textRegex = null
+                  try {
+                    if (taskTextFilter) textRegex = new RegExp(taskTextFilter, 'i')
+                  } catch (e) { textRegex = null }
+
+                  const matchesTextFilter = (task) => {
+                    if (!taskTextFilter) return true
+                    const searchText = `${task.task_name || ''} ${task.description || ''}`.toLowerCase()
+                    if (textRegex) return textRegex.test(searchText)
+                    return searchText.includes(taskTextFilter.toLowerCase())
+                  }
+
                   if (viewAllCars) {
                     const allCarTasks = cars.flatMap(c => c.task_completions || [])
                     const total = allCarTasks.length
                     const completed = allCarTasks.filter(t => t.status === 'completed').length
                     const filteredTasks = allCarTasks.filter(t =>
                       (statusFilter === 'all' || t.status === statusFilter) &&
-                      (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter)
+                      (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter) &&
+                      matchesTextFilter(t)
                     )
                     const filteredCompleted = filteredTasks.filter(t => t.status === 'completed').length
                     const percent = total > 0 ? Math.round((completed / total) * 100) : 0
-                    if (statusFilter !== 'all' || phaseFilter !== 'all') {
+                    if (statusFilter !== 'all' || phaseFilter !== 'all' || taskTextFilter) {
                       return `Showing ${filteredTasks.length} tasks (${filteredCompleted} completed) | Total: ${completed}/${total} (${percent}%)`
                     }
                     return `${completed} of ${total} tasks completed (${percent}%)`
@@ -1295,10 +1331,11 @@ function TaskTracker() {
                   const p = getCarProgress(selectedCar)
                   const filteredTasks = (selectedCar.task_completions || []).filter(t =>
                     (statusFilter === 'all' || t.status === statusFilter) &&
-                    (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter)
+                    (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter) &&
+                    matchesTextFilter(t)
                   )
                   const filteredCompleted = filteredTasks.filter(t => t.status === 'completed').length
-                  if (statusFilter !== 'all' || phaseFilter !== 'all') {
+                  if (statusFilter !== 'all' || phaseFilter !== 'all' || taskTextFilter) {
                     return `Showing ${filteredTasks.length} tasks (${filteredCompleted} completed) | Total: ${p.completed}/${p.total} (${p.percent}%)`
                   }
                   return `${p.completed} of ${p.total} tasks completed (${p.percent}%)`
@@ -1348,11 +1385,31 @@ function TaskTracker() {
               {(() => {
                 // Get tasks from all cars or selected car
                 const sourceTasks = viewAllCars
-                  ? cars.flatMap(c => (c.task_completions || []).map(t => ({ ...t, carName: c.car_types?.name, carNumber: c.car_number })))
+                  ? cars.flatMap(c => (c.task_completions || []).map(t => ({ ...t, carName: c.car_types?.name, carNumber: c.car_number, trainNumber: c.trainNumber })))
                   : (selectedCar?.task_completions || [])
+
+                // Build regex for text filter (case insensitive)
+                let textRegex = null
+                try {
+                  if (taskTextFilter) {
+                    textRegex = new RegExp(taskTextFilter, 'i')
+                  }
+                } catch (e) {
+                  // Invalid regex, fall back to simple includes
+                  textRegex = null
+                }
+
                 const allTasks = sourceTasks
                   .filter(task => statusFilter === 'all' || task.status === statusFilter)
                   .filter(task => phaseFilter === 'all' || (task.phase || 'No Phase') === phaseFilter)
+                  .filter(task => {
+                    if (!taskTextFilter) return true
+                    const searchText = `${task.task_name || ''} ${task.description || ''}`.toLowerCase()
+                    if (textRegex) {
+                      return textRegex.test(searchText)
+                    }
+                    return searchText.includes(taskTextFilter.toLowerCase())
+                  })
 
                 if (allTasks.length === 0) {
                   return (

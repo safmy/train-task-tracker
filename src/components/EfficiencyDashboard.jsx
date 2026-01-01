@@ -335,23 +335,26 @@ function EfficiencyDashboard() {
 
     // Sort by number of completed tasks (descending) for ranking
     // Calculate efficiency: task_hours / (8h × person-days)
-    const teamData = Object.entries(teamStats).map(([teamKey, team]) => {
-      const personDays = personDaysTracker[teamKey]?.size || 0
-      const availableHours = personDays * 8
-      const taskHours = team.completedMinutes / 60
-      // Real efficiency = work hours / available hours (8h per person per day)
-      const realEfficiency = availableHours > 0 ? Math.round((taskHours / availableHours) * 100) : 0
+    // Exclude TFOS from efficiency ranking - it's a location, not a team
+    const teamData = Object.entries(teamStats)
+      .filter(([teamKey, team]) => team.name !== 'TFOS') // Exclude TFOS
+      .map(([teamKey, team]) => {
+        const personDays = personDaysTracker[teamKey]?.size || 0
+        const availableHours = personDays * 8
+        const taskHours = team.completedMinutes / 60
+        // Real efficiency = work hours / available hours (8h per person per day)
+        const realEfficiency = availableHours > 0 ? Math.round((taskHours / availableHours) * 100) : 0
 
-      return {
-        ...team,
-        personDays,
-        availableHours: Math.round(availableHours * 10) / 10,
-        efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0, // Task completion %
-        totalHours: Math.round(team.totalMinutes / 60 * 10) / 10, // 1 decimal
-        completedHours: Math.round(team.completedMinutes / 60 * 10) / 10,
-        timeEfficiency: realEfficiency // Real efficiency based on 8h/person/day
-      }
-    }).sort((a, b) => b.completed - a.completed)
+        return {
+          ...team,
+          personDays,
+          availableHours: Math.round(availableHours * 10) / 10,
+          efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0, // Task completion %
+          totalHours: Math.round(team.totalMinutes / 60 * 10) / 10, // 1 decimal
+          completedHours: Math.round(team.completedMinutes / 60 * 10) / 10,
+          timeEfficiency: realEfficiency // Real efficiency based on 8h/person/day
+        }
+      }).sort((a, b) => b.completed - a.completed)
 
     setTeamPerformance(teamData)
 
