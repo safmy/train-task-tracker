@@ -4,7 +4,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line
 } from 'recharts'
-import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+
+const CACHE_KEY = 'train_tracker_dashboard_cache'
+const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp'
 
 // Team roster - who belongs to each team
 const TEAM_ROSTER = {
@@ -32,14 +35,24 @@ function EfficiencyDashboard() {
   const [selectedTrain, setSelectedTrain] = useState('all')
   const [sortBy, setSortBy] = useState('train') // 'train' or 'completion'
   const [showTeamRoster, setShowTeamRoster] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [cacheTimestamp, setCacheTimestamp] = useState(null)
+  const [cachedData, setCachedData] = useState(null)
 
   useEffect(() => {
     loadTrains()
+    // Check for cached data on initial load
+    const cached = localStorage.getItem(CACHE_KEY)
+    const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
+    if (cached && timestamp) {
+      setCachedData(JSON.parse(cached))
+      setCacheTimestamp(new Date(timestamp))
+    }
   }, [])
 
   useEffect(() => {
-    loadDashboardData()
-  }, [selectedTimeRange, selectedTrain])
+    loadDashboardData(false) // Use cache if available
+  }, [selectedTimeRange, selectedTrain, cachedData])
 
   const loadTrains = async () => {
     try {
@@ -89,13 +102,49 @@ function EfficiencyDashboard() {
     return filterFn ? allData.filter(filterFn) : allData
   }
 
-  const loadDashboardData = async () => {
+  const handleRefresh = () => {
+    setIsRefreshing(true)
+    setCachedData(null)
+    localStorage.removeItem(CACHE_KEY)
+    localStorage.removeItem(CACHE_TIMESTAMP_KEY)
+    loadDashboardData(true)
+  }
+
+  const loadDashboardData = async (forceRefresh = false) => {
     setLoading(true)
     setLoadingProgress('Starting data load...')
     try {
-      // Get all cars with their train unit info (with pagination)
-      setLoadingProgress('Loading cars...')
-      const allCars = await fetchAllData('cars', '*, train_units(*), car_types(*)')
+      let allCars, allCompletions
+
+      // Check if we can use cached data
+      if (!forceRefresh && cachedData) {
+        setLoadingProgress('Using cached data...')
+        allCars = cachedData.cars
+        allCompletions = cachedData.completions
+      } else {
+        // Get all cars with their train unit info (with pagination)
+        setLoadingProgress('Loading cars from server...')
+        allCars = await fetchAllData('cars', '*, train_units(*), car_types(*)')
+
+        // Get all completions with pagination
+        setLoadingProgress('Loading task completions from server...')
+        allCompletions = await fetchAllData('task_completions', `
+          *,
+          teams(*),
+          cars(*, train_units(*), car_types(*))
+        `)
+
+        // Cache the data
+        const cacheData = { cars: allCars, completions: allCompletions }
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData))
+          localStorage.setItem(CACHE_TIMESTAMP_KEY, new Date().toISOString())
+          setCachedData(cacheData)
+          setCacheTimestamp(new Date())
+        } catch (e) {
+          console.warn('Could not cache data to localStorage:', e)
+        }
+      }
 
       // Filter cars by selected train
       let filteredCarIds = []
@@ -108,14 +157,6 @@ function EfficiencyDashboard() {
       } else if (allCars) {
         filteredCarIds = allCars.map(c => c.id)
       }
-
-      // Get all completions with pagination
-      setLoadingProgress('Loading task completions...')
-      const allCompletions = await fetchAllData('task_completions', `
-        *,
-        teams(*),
-        cars(*, train_units(*), car_types(*))
-      `)
 
       // Filter completions by selected train
       let completions = allCompletions || []
@@ -205,21 +246,30 @@ function EfficiencyDashboard() {
         completions.forEach(c => {
           if (c.completed_at) {
             const dateStr = c.completed_at.split('T')[0]
-            if (!dailyStats[dateStr]) {
-              dailyStats[dateStr] = { date: dateStr, count: 0 }
+            // Validate date - must be a valid format YYYY-MM-DD
+            if (dateStr && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              if (!dailyStats[dateStr]) {
+                dailyStats[dateStr] = { date: dateStr, count: 0 }
+              }
+              dailyStats[dateStr].count++
             }
-            dailyStats[dateStr].count++
           }
         })
 
-        // Sort by date and take last 30 entries (or all if less)
+        // Sort by actual date (not string comparison) and take last 30 entries
         const sortedDays = Object.values(dailyStats)
-          .sort((a, b) => a.date.localeCompare(b.date))
-          .slice(-30)
           .map(d => ({
             ...d,
-            displayDate: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            dateObj: new Date(d.date + 'T00:00:00'), // Parse as local time
+            displayDate: new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })
           }))
+          .filter(d => !isNaN(d.dateObj.getTime())) // Filter out invalid dates
+          .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime()) // Sort by timestamp
+          .slice(-30)
 
         setCompletionsByDay(sortedDays)
       }
@@ -227,6 +277,7 @@ function EfficiencyDashboard() {
       console.error('Error loading dashboard data:', error)
     }
     setLoading(false)
+    setIsRefreshing(false)
   }
 
   const COLORS = ['#10B981', '#F59E0B', '#94a3b8']
@@ -262,10 +313,40 @@ function EfficiencyDashboard() {
   return (
     <div className="efficiency-dashboard">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <h1 style={{ margin: 0 }}>Efficiency Dashboard</h1>
+        <div>
+          <h1 style={{ margin: 0 }}>Efficiency Dashboard</h1>
+          {cacheTimestamp && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+              Data cached: {cacheTimestamp.toLocaleString()}
+            </div>
+          )}
+        </div>
 
-        {/* Train Filter */}
+        {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Refresh Button */}
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              border: '1px solid var(--border)',
+              background: 'var(--accent)',
+              color: 'white',
+              fontSize: '0.9rem',
+              cursor: isRefreshing ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              opacity: isRefreshing ? 0.7 : 1
+            }}
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'spinning' : ''} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+
+          {/* Train Filter */}
           <Filter size={20} style={{ color: 'var(--text-muted)' }} />
           <select
             value={selectedTrain}
