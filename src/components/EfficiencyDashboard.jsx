@@ -6,57 +6,81 @@ import {
 } from 'recharts'
 import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
 
-const CACHE_KEY = 'train_tracker_dashboard_cache_v4'
-const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp_v4'
+const DB_NAME = 'TrainTrackerDB'
+const DB_VERSION = 1
+const STORE_NAME = 'dashboardCache'
 
-// Compress data for localStorage (only keep essential fields)
-// Target: under 5MB to fit in localStorage
-const compressForCache = (cars, completions) => {
-  // Only keep minimal fields - exclude IDs where possible
-  const compressedCars = cars.map(c => ({
-    i: c.id,
-    u: c.unit_id,
-    t: c.train_units?.train_number // train_number
-  }))
-
-  // For completions, only store what's needed for dashboard stats
-  // Skip completions without meaningful data
-  const compressedCompletions = completions
-    .filter(c => c.status) // Must have status
-    .map(c => ({
-      c: c.car_id, // car_id
-      s: c.status === 'completed' ? 1 : c.status === 'in_progress' ? 2 : 0, // status as number
-      d: c.completed_at ? c.completed_at.split('T')[0] : null, // date only, no time
-      t: c.cars?.train_units?.train_number, // train number
-      m: c.teams?.id ? c.teams.id.substring(0, 8) : null, // team_id truncated
-      n: c.teams?.name, // team name
-      b: c.completed_by // completed_by array for TFOS detection
-    }))
-
-  return { cars: compressedCars, completions: compressedCompletions }
+// IndexedDB helpers - provides ~50MB+ storage instead of localStorage's 5MB limit
+const openDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result)
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+      }
+    }
+  })
 }
 
-// Decompress data from localStorage
-const decompressFromCache = (cached) => {
-  const cars = cached.cars.map(c => ({
-    id: c.i,
-    unit_id: c.u,
-    train_units: { train_number: c.t }
-  }))
+const getCacheFromDB = async () => {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      const request = store.get('dashboardData')
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result)
+    })
+  } catch (e) {
+    console.error('Error reading from IndexedDB:', e)
+    return null
+  }
+}
 
-  // Convert status number back to string
-  const statusMap = { 0: 'pending', 1: 'completed', 2: 'in_progress' }
+const saveCacheToDB = async (cars, completions) => {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      const data = {
+        id: 'dashboardData',
+        cars,
+        completions,
+        timestamp: new Date().toISOString()
+      }
+      const request = store.put(data)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        console.log('Cache saved to IndexedDB, records:', {
+          cars: cars.length,
+          completions: completions.length
+        })
+        resolve()
+      }
+    })
+  } catch (e) {
+    console.error('Error saving to IndexedDB:', e)
+  }
+}
 
-  const completions = cached.completions.map(c => ({
-    car_id: c.c,
-    status: statusMap[c.s] || 'pending',
-    completed_at: c.d ? c.d + 'T00:00:00' : null,
-    cars: { train_units: { train_number: c.t } },
-    teams: c.n ? { id: c.m, name: c.n } : null,
-    completed_by: c.b || null
-  }))
-
-  return { cars, completions }
+const clearCacheFromDB = async () => {
+  try {
+    const db = await openDB()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      const request = store.delete('dashboardData')
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (e) {
+    console.error('Error clearing IndexedDB:', e)
+  }
 }
 
 // Team roster - who belongs to each team
@@ -93,60 +117,38 @@ function EfficiencyDashboard() {
   useEffect(() => {
     loadTrains()
 
-    // Check for cached data on initial load - load directly from localStorage
-    let cached = null
-    let timestamp = null
-
-    try {
-      cached = localStorage.getItem(CACHE_KEY)
-      timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
-      console.log('Cache check:', {
-        hasCached: !!cached,
-        hasTimestamp: !!timestamp,
-        cacheSize: cached ? (cached.length / 1024 / 1024).toFixed(2) + 'MB' : '0'
-      })
-    } catch (e) {
-      console.error('Error reading localStorage:', e)
-    }
-
-    if (cached && timestamp) {
+    // Check for cached data in IndexedDB on initial load
+    const initFromCache = async () => {
       try {
-        const parsedCache = JSON.parse(cached)
-        console.log('Cache found, decompressing...', {
-          cars: parsedCache.cars?.length,
-          completions: parsedCache.completions?.length
+        const cached = await getCacheFromDB()
+        console.log('IndexedDB cache check:', {
+          hasCached: !!cached,
+          cars: cached?.cars?.length || 0,
+          completions: cached?.completions?.length || 0
         })
 
-        if (parsedCache.cars?.length > 0 && parsedCache.completions?.length > 0) {
-          // Decompress the cached data
-          const decompressed = decompressFromCache(parsedCache)
-          setCachedData(decompressed)
-          setCacheTimestamp(new Date(timestamp))
+        if (cached?.cars?.length > 0 && cached?.completions?.length > 0) {
+          setCachedData({ cars: cached.cars, completions: cached.completions })
+          setCacheTimestamp(new Date(cached.timestamp))
 
           // Load dashboard with cached data immediately - NO server fetch
-          console.log('Loading from cache - NO server fetch')
-          loadDashboardDataWithCache(decompressed)
-
-          // Listen for refresh events from navbar
-          const handleRefreshEvent = () => {
-            handleRefresh()
-          }
-          window.addEventListener('refreshDashboardData', handleRefreshEvent)
-          return () => window.removeEventListener('refreshDashboardData', handleRefreshEvent)
-        } else {
-          console.log('Cache data is empty, will fetch from server')
+          console.log('Loading from IndexedDB cache - NO server fetch')
+          loadDashboardDataWithCache({ cars: cached.cars, completions: cached.completions })
+          return true
         }
       } catch (e) {
-        console.error('Error parsing cache:', e)
-        // Clear invalid cache
-        localStorage.removeItem(CACHE_KEY)
-        localStorage.removeItem(CACHE_TIMESTAMP_KEY)
+        console.error('Error reading IndexedDB cache:', e)
       }
+      return false
     }
 
-    // No valid cache - must load from server
-    console.log('No valid cache found, loading from server...')
-    loadDashboardData(true)
+    initFromCache().then(hadCache => {
+      if (!hadCache) {
+        // No valid cache - must load from server
+        console.log('No valid cache found, loading from server...')
+        loadDashboardData(true)
+      }
+    })
 
     // Listen for refresh events from navbar
     const handleRefreshEvent = () => {
@@ -385,11 +387,10 @@ function EfficiencyDashboard() {
     setCompletionsByDay(sortedDays)
   }
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true)
     setCachedData(null)
-    localStorage.removeItem(CACHE_KEY)
-    localStorage.removeItem(CACHE_TIMESTAMP_KEY)
+    await clearCacheFromDB()
     loadDashboardData(true)
   }
 
@@ -409,32 +410,14 @@ function EfficiencyDashboard() {
         cars(*, train_units(*), car_types(*))
       `)
 
-      // Cache the data (compressed to fit in localStorage)
+      // Cache the data to IndexedDB (no size limit like localStorage)
       try {
-        const compressed = compressForCache(allCars, allCompletions)
-        const compressedStr = JSON.stringify(compressed)
-        console.log('Caching data, size:', (compressedStr.length / 1024 / 1024).toFixed(2), 'MB')
-
-        localStorage.setItem(CACHE_KEY, compressedStr)
-        localStorage.setItem(CACHE_TIMESTAMP_KEY, new Date().toISOString())
-
-        // Store decompressed version in state for filter changes
+        await saveCacheToDB(allCars, allCompletions)
+        // Store in state for filter changes
         setCachedData({ cars: allCars, completions: allCompletions })
         setCacheTimestamp(new Date())
-        console.log('Cache saved successfully!')
       } catch (e) {
-        console.error('Could not cache data to localStorage:', e.name, e.message)
-        // If quota exceeded, try to clear old caches
-        if (e.name === 'QuotaExceededError') {
-          console.log('Storage quota exceeded, clearing old data...')
-          localStorage.removeItem(CACHE_KEY)
-          localStorage.removeItem(CACHE_TIMESTAMP_KEY)
-          // Also clear old version cache keys if they exist
-          localStorage.removeItem('train_tracker_dashboard_cache')
-          localStorage.removeItem('train_tracker_dashboard_timestamp')
-          localStorage.removeItem('train_tracker_dashboard_cache_v3')
-          localStorage.removeItem('train_tracker_dashboard_timestamp_v3')
-        }
+        console.error('Could not cache data to IndexedDB:', e)
       }
 
       // Filter cars by selected train

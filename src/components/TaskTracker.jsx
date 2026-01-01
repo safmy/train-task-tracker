@@ -39,6 +39,58 @@ function TaskTracker() {
   // Backward compatibility helper - get first selected train
   const selectedTrain = selectedTrains.length > 0 ? selectedTrains[0] : null
 
+  // Aggregate cars by car type when multiple trains are selected
+  // This creates 7 "virtual" cars combining tasks from all trains
+  const getAggregatedCars = () => {
+    if (selectedTrains.length <= 1 && !viewAllTrains) {
+      return cars // Return individual cars for single train
+    }
+
+    // Define car type order and display names
+    const carTypeConfig = [
+      { name: 'DM 3 CAR', display: 'DM', category: '3 CAR' },
+      { name: 'Trailer 3 Car', display: 'Trailer', category: '3 CAR' },
+      { name: 'UNDM 3 CAR', display: 'UNDM', category: '3 CAR' },
+      { name: 'DM 4 Car', display: 'DM', category: '4 CAR' },
+      { name: 'Trailer 4 Car', display: 'Trailer', category: '4 CAR' },
+      { name: 'Special Trailer 4 Car', display: 'Special Trailer', category: '4 CAR' },
+      { name: 'UNDM 4 Car', display: 'UNDM', category: '4 CAR' }
+    ]
+
+    // Group cars by type
+    const carsByType = {}
+    cars.forEach(car => {
+      const typeName = car.car_types?.name
+      if (!carsByType[typeName]) {
+        carsByType[typeName] = []
+      }
+      carsByType[typeName].push(car)
+    })
+
+    // Create aggregated cars
+    return carTypeConfig.map((config, idx) => {
+      const carsOfType = carsByType[config.name] || []
+      const allCompletions = carsOfType.flatMap(c => c.task_completions || [])
+      const trainNumbers = [...new Set(carsOfType.map(c => c.trainNumber))].sort((a, b) => a - b)
+
+      return {
+        id: `aggregated-${config.name}`,
+        isAggregated: true,
+        car_types: { name: config.name, category: config.category },
+        displayName: config.display,
+        car_number: trainNumbers.length > 1
+          ? `${trainNumbers.length} trains`
+          : carsOfType[0]?.car_number || '',
+        task_completions: allCompletions,
+        sourceCars: carsOfType, // Keep reference to original cars
+        trainNumbers: trainNumbers
+      }
+    })
+  }
+
+  // Get the cars to display (aggregated or individual)
+  const displayCars = getAggregatedCars()
+
   // Get unique phases from current car's tasks
   const getUniquePhases = (tasks) => {
     const phases = [...new Set(tasks.map(t => t.phase || 'No Phase').filter(Boolean))]
@@ -980,7 +1032,7 @@ function TaskTracker() {
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}
             >
               {isCarVisualCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-              <span style={{ fontWeight: '600' }}>Train Cars ({cars.length})</span>
+              <span style={{ fontWeight: '600' }}>Train Cars ({displayCars.length})</span>
               <span style={{
                 fontSize: '0.75rem',
                 padding: '0.125rem 0.5rem',
@@ -989,11 +1041,11 @@ function TaskTracker() {
                 borderRadius: '9999px'
               }}>
                 {(() => {
-                  const totalCompleted = cars.reduce((acc, car) => {
+                  const totalCompleted = displayCars.reduce((acc, car) => {
                     const p = getCarProgress(car)
                     return acc + p.completed
                   }, 0)
-                  const totalTasks = cars.reduce((acc, car) => {
+                  const totalTasks = displayCars.reduce((acc, car) => {
                     const p = getCarProgress(car)
                     return acc + p.total
                   }, 0)
@@ -1033,17 +1085,17 @@ function TaskTracker() {
           {/* Car Visual Container */}
           {!isCarVisualCollapsed && (
             <div className="train-container">
-              {cars.map((car, idx) => {
+              {displayCars.map((car, idx) => {
                 const progress = getCarProgress(car)
                 const isSelected = selectedCar?.id === car.id
                 const is3Car = car.car_types?.category === '3 CAR'
 
-                // Check if this is a new train (different from previous car)
-                const prevCar = idx > 0 ? cars[idx - 1] : null
-                const isNewTrain = idx === 0 || car.trainNumber !== prevCar?.trainNumber
+                // For aggregated view, show separator between 3 CAR and 4 CAR groups
+                const prevCar = idx > 0 ? displayCars[idx - 1] : null
+                const showCarTypeSeparator = idx > 0 && is3Car === false && prevCar?.car_types?.category === '3 CAR'
 
-                // Add separator between 3 CAR and 4 CAR units within same train
-                const showCarTypeSeparator = idx > 0 && !isNewTrain && is3Car === false && prevCar?.car_types?.category === '3 CAR'
+                // Only show train separators for non-aggregated view
+                const isNewTrain = !car.isAggregated && (idx === 0 || car.trainNumber !== prevCar?.trainNumber)
 
                 // Check if car has tasks matching the current filter
                 const hasMatchingTasks = statusFilter === 'all' ? true :
@@ -1053,43 +1105,8 @@ function TaskTracker() {
 
                 return (
                   <div key={car.id} style={{ display: 'contents' }}>
-                    {/* Train separator with label when multi-selecting */}
-                    {isNewTrain && idx > 0 && (selectedTrains.length > 1 || viewAllTrains) && (
-                      <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        margin: '0 12px',
-                        alignSelf: 'stretch',
-                        justifyContent: 'center'
-                      }}>
-                        <div style={{
-                          width: '3px',
-                          flex: 1,
-                          background: 'var(--primary)',
-                          borderRadius: '2px'
-                        }} />
-                        <span style={{
-                          fontSize: '0.625rem',
-                          fontWeight: '700',
-                          background: 'var(--primary)',
-                          color: 'white',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          margin: '4px 0'
-                        }}>
-                          T{car.trainNumber}
-                        </span>
-                        <div style={{
-                          width: '3px',
-                          flex: 1,
-                          background: 'var(--primary)',
-                          borderRadius: '2px'
-                        }} />
-                      </div>
-                    )}
-                    {/* Train label for first car when multi-selecting */}
-                    {isNewTrain && idx === 0 && (selectedTrains.length > 1 || viewAllTrains) && (
+                    {/* For aggregated view, show label with train count */}
+                    {car.isAggregated && idx === 0 && (
                       <div style={{
                         position: 'absolute',
                         top: '-20px',
@@ -1101,7 +1118,9 @@ function TaskTracker() {
                         padding: '2px 6px',
                         borderRadius: '4px'
                       }}>
-                        T{car.trainNumber}
+                        {car.trainNumbers?.length > 1
+                          ? `${car.trainNumbers.length} Trains (${car.trainNumbers.map(n => `T${n}`).join(', ')})`
+                          : `T${car.trainNumbers?.[0] || ''}`}
                       </div>
                     )}
                     {showCarTypeSeparator && (
@@ -1170,13 +1189,21 @@ function TaskTracker() {
                           }}
                         />
                         <div className="car-content">
-                          <div className="car-type">{car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}</div>
-                          <div className="car-number">#{car.car_number}</div>
+                          <div className="car-type">
+                            {car.isAggregated
+                              ? car.displayName
+                              : car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}
+                          </div>
+                          <div className="car-number">
+                            {car.isAggregated
+                              ? (car.trainNumbers?.length > 1 ? `${car.trainNumbers.length} trains` : `#${car.sourceCars?.[0]?.car_number || ''}`)
+                              : `#${car.car_number}`}
+                          </div>
                           <div className="car-stats">{progress.completed}/{progress.total}</div>
                           <div className="car-percent">{progress.percent}%</div>
                         </div>
                         {idx === 0 && <div className="train-front" />}
-                        {idx === cars.length - 1 && <div className="train-back" />}
+                        {idx === displayCars.length - 1 && <div className="train-back" />}
                       </div>
                     </div>
                   </div>
