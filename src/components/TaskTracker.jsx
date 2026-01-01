@@ -30,6 +30,8 @@ function TaskTracker() {
   const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
   const [collapsedPhases, setCollapsedPhases] = useState({}) // Track which phases are collapsed
   const [isTrainSelectorCollapsed, setIsTrainSelectorCollapsed] = useState(false)
+  const [isCarVisualCollapsed, setIsCarVisualCollapsed] = useState(false)
+  const [viewAllCars, setViewAllCars] = useState(false) // View tasks from all cars
   const [trainCompletionData, setTrainCompletionData] = useState({}) // Cache train completion stats
 
   // Get unique phases from current car's tasks
@@ -85,7 +87,7 @@ function TaskTracker() {
     if (selectedTrain) {
       loadCarsForTrain(selectedTrain)
     }
-  }, [selectedTrain])
+  }, [selectedTrain, statusFilter])
 
   const loadData = async () => {
     setLoading(true)
@@ -206,9 +208,23 @@ function TaskTracker() {
         const allCompletions = sortedCars.flatMap(c => c.task_completions || [])
         setTaskCompletions(allCompletions)
 
-        // Auto-select first car
-        if (sortedCars.length > 0 && !selectedCar) {
-          setSelectedCar(sortedCars[0])
+        // Auto-select car based on current filter
+        if (sortedCars.length > 0) {
+          // If there's a status filter, find the first car with matching tasks
+          if (statusFilter !== 'all') {
+            const carWithMatchingTasks = sortedCars.find(car =>
+              car.task_completions?.some(t => t.status === statusFilter)
+            )
+            if (carWithMatchingTasks) {
+              setSelectedCar(carWithMatchingTasks)
+            } else {
+              // No car has matching tasks, select first car anyway
+              setSelectedCar(sortedCars[0])
+            }
+          } else {
+            // No filter, select first car
+            setSelectedCar(sortedCars[0])
+          }
         }
       }
     } catch (error) {
@@ -799,58 +815,176 @@ function TaskTracker() {
       {/* Visual Train */}
       {selectedTrain && cars.length > 0 && (
         <div className="train-visual">
-          <div className="train-container">
-            {cars.map((car, idx) => {
-              const progress = getCarProgress(car)
-              const isSelected = selectedCar?.id === car.id
-              const is3Car = car.car_types?.category === '3 CAR'
-              // Add separator between 3 CAR and 4 CAR units
-              const showSeparator = idx > 0 && is3Car === false && cars[idx - 1]?.car_types?.category === '3 CAR'
-
-              return (
-                <div key={car.id} style={{ display: 'contents' }}>
-                  {showSeparator && (
-                    <div style={{
-                      width: '4px',
-                      height: '100px',
-                      background: 'linear-gradient(180deg, var(--primary) 0%, var(--bg-card) 100%)',
-                      borderRadius: '2px',
-                      margin: '10px 8px',
-                      alignSelf: 'center'
-                    }} />
-                  )}
-                  <div
-                    className={`train-car ${isSelected ? 'selected' : ''}`}
-                    onClick={() => setSelectedCar(car)}
-                    style={{
-                      borderColor: isSelected ? '#3B82F6' : getCarColor(progress.percent)
-                    }}
-                  >
-                    <div
-                      className="car-progress-fill"
-                      style={{
-                        width: `${progress.percent}%`,
-                        backgroundColor: getCarColor(progress.percent)
-                      }}
-                    />
-                    <div className="car-content">
-                      <div className="car-type">{car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}</div>
-                      <div className="car-number">#{car.car_number}</div>
-                      <div className="car-stats">{progress.completed}/{progress.total}</div>
-                      <div className="car-percent">{progress.percent}%</div>
-                    </div>
-                    {idx === 0 && <div className="train-front" />}
-                    {idx === cars.length - 1 && <div className="train-back" />}
-                  </div>
-                </div>
-              )
-            })}
+          {/* Collapsible Header for Car Visual */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.5rem 1rem',
+              background: 'var(--bg-secondary)',
+              borderRadius: '0.5rem',
+              marginBottom: isCarVisualCollapsed ? 0 : '0.75rem'
+            }}
+          >
+            <div
+              onClick={() => setIsCarVisualCollapsed(!isCarVisualCollapsed)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}
+            >
+              {isCarVisualCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              <span style={{ fontWeight: '600' }}>Train Cars ({cars.length})</span>
+              <span style={{
+                fontSize: '0.75rem',
+                padding: '0.125rem 0.5rem',
+                background: 'var(--primary)',
+                color: 'white',
+                borderRadius: '9999px'
+              }}>
+                {(() => {
+                  const totalCompleted = cars.reduce((acc, car) => {
+                    const p = getCarProgress(car)
+                    return acc + p.completed
+                  }, 0)
+                  const totalTasks = cars.reduce((acc, car) => {
+                    const p = getCarProgress(car)
+                    return acc + p.total
+                  }, 0)
+                  const percent = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0
+                  return `${totalCompleted}/${totalTasks} (${percent}%)`
+                })()}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {/* All Cars Toggle Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setViewAllCars(!viewAllCars)
+                  if (!viewAllCars) setSelectedCar(null)
+                }}
+                style={{
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '0.375rem',
+                  border: viewAllCars ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  background: viewAllCars ? 'var(--primary)' : 'transparent',
+                  color: viewAllCars ? 'white' : 'var(--text)',
+                  fontSize: '0.75rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                All Cars
+              </button>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {isCarVisualCollapsed ? 'Click to expand' : ''}
+              </span>
+            </div>
           </div>
+
+          {/* Car Visual Container */}
+          {!isCarVisualCollapsed && (
+            <div className="train-container">
+              {cars.map((car, idx) => {
+                const progress = getCarProgress(car)
+                const isSelected = selectedCar?.id === car.id
+                const is3Car = car.car_types?.category === '3 CAR'
+                // Add separator between 3 CAR and 4 CAR units
+                const showSeparator = idx > 0 && is3Car === false && cars[idx - 1]?.car_types?.category === '3 CAR'
+
+                // Check if car has tasks matching the current filter
+                const hasMatchingTasks = statusFilter === 'all' ? true :
+                  car.task_completions?.some(t => t.status === statusFilter)
+                const matchingCount = statusFilter === 'all' ? 0 :
+                  car.task_completions?.filter(t => t.status === statusFilter).length || 0
+
+                return (
+                  <div key={car.id} style={{ display: 'contents' }}>
+                    {showSeparator && (
+                      <div style={{
+                        width: '4px',
+                        height: '100px',
+                        background: 'linear-gradient(180deg, var(--primary) 0%, var(--bg-card) 100%)',
+                        borderRadius: '2px',
+                        margin: '10px 8px',
+                        alignSelf: 'center'
+                      }} />
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      {/* Filter indicator radio above car */}
+                      {statusFilter !== 'all' && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          marginBottom: '4px',
+                          padding: '2px 6px',
+                          borderRadius: '12px',
+                          background: hasMatchingTasks ? (
+                            statusFilter === 'completed' ? '#10B981' :
+                            statusFilter === 'in_progress' ? '#F59E0B' :
+                            '#6B7280'
+                          ) : 'transparent',
+                          border: hasMatchingTasks ? 'none' : '1px solid var(--border)',
+                          minHeight: '20px'
+                        }}>
+                          {hasMatchingTasks && (
+                            <>
+                              <div style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: 'white',
+                                boxShadow: '0 0 4px rgba(255,255,255,0.5)'
+                              }} />
+                              <span style={{
+                                fontSize: '0.625rem',
+                                color: 'white',
+                                fontWeight: '600'
+                              }}>
+                                {matchingCount}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <div
+                        className={`train-car ${isSelected && !viewAllCars ? 'selected' : ''}`}
+                        onClick={() => {
+                          setSelectedCar(car)
+                          setViewAllCars(false)
+                        }}
+                        style={{
+                          borderColor: isSelected && !viewAllCars ? '#3B82F6' : getCarColor(progress.percent)
+                        }}
+                      >
+                        <div
+                          className="car-progress-fill"
+                          style={{
+                            width: `${progress.percent}%`,
+                            backgroundColor: getCarColor(progress.percent)
+                          }}
+                        />
+                        <div className="car-content">
+                          <div className="car-type">{car.car_types?.name?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')}</div>
+                          <div className="car-number">#{car.car_number}</div>
+                          <div className="car-stats">{progress.completed}/{progress.total}</div>
+                          <div className="car-percent">{progress.percent}%</div>
+                        </div>
+                        {idx === 0 && <div className="train-front" />}
+                        {idx === cars.length - 1 && <div className="train-back" />}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Task List for Selected Car */}
-      {selectedCar && (
+      {/* Task List for Selected Car or All Cars */}
+      {(selectedCar || viewAllCars) && (
         <div className="task-panel">
           <div
             className="task-panel-header"
@@ -859,11 +993,26 @@ function TaskTracker() {
           >
             <div>
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                {selectedCar.car_types?.name} - Car #{selectedCar.car_number}
+                {viewAllCars ? `All Cars - ${selectedTrain?.trainNumber ? `T${selectedTrain.trainNumber}` : selectedTrain?.name}` : `${selectedCar.car_types?.name} - Car #${selectedCar.car_number}`}
                 {isTaskListCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
               </h2>
               <div className="task-panel-stats">
                 {(() => {
+                  if (viewAllCars) {
+                    const allCarTasks = cars.flatMap(c => c.task_completions || [])
+                    const total = allCarTasks.length
+                    const completed = allCarTasks.filter(t => t.status === 'completed').length
+                    const filteredTasks = allCarTasks.filter(t =>
+                      (statusFilter === 'all' || t.status === statusFilter) &&
+                      (phaseFilter === 'all' || (t.phase || 'No Phase') === phaseFilter)
+                    )
+                    const filteredCompleted = filteredTasks.filter(t => t.status === 'completed').length
+                    const percent = total > 0 ? Math.round((completed / total) * 100) : 0
+                    if (statusFilter !== 'all' || phaseFilter !== 'all') {
+                      return `Showing ${filteredTasks.length} tasks (${filteredCompleted} completed) | Total: ${completed}/${total} (${percent}%)`
+                    }
+                    return `${completed} of ${total} tasks completed (${percent}%)`
+                  }
                   const p = getCarProgress(selectedCar)
                   const filteredTasks = (selectedCar.task_completions || []).filter(t =>
                     (statusFilter === 'all' || t.status === statusFilter) &&
@@ -918,7 +1067,11 @@ function TaskTracker() {
 
               {/* Group tasks by phase */}
               {(() => {
-                const allTasks = (selectedCar.task_completions || [])
+                // Get tasks from all cars or selected car
+                const sourceTasks = viewAllCars
+                  ? cars.flatMap(c => (c.task_completions || []).map(t => ({ ...t, carName: c.car_types?.name, carNumber: c.car_number })))
+                  : (selectedCar?.task_completions || [])
+                const allTasks = sourceTasks
                   .filter(task => statusFilter === 'all' || task.status === statusFilter)
                   .filter(task => phaseFilter === 'all' || (task.phase || 'No Phase') === phaseFilter)
 
@@ -997,6 +1150,20 @@ function TaskTracker() {
                             <div className="task-name">{task.task_name}</div>
                             {task.description && (
                               <div className="task-desc">{task.description}</div>
+                            )}
+                            {/* Show car info when viewing all cars */}
+                            {viewAllCars && task.carName && (
+                              <div style={{
+                                fontSize: '0.7rem',
+                                color: 'var(--text-muted)',
+                                marginTop: '0.25rem',
+                                padding: '0.125rem 0.375rem',
+                                background: 'var(--bg-secondary)',
+                                borderRadius: '0.25rem',
+                                display: 'inline-block'
+                              }}>
+                                {task.carName?.replace(' 3 CAR', '').replace(' 4 Car', '').replace(' 3 Car', '')} #{task.carNumber}
+                              </div>
                             )}
                           </div>
                           <div className="task-meta">
