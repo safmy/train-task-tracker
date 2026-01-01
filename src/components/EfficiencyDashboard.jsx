@@ -298,11 +298,18 @@ function EfficiencyDashboard() {
             color: teamColor,
             completed: 0,
             inProgress: 0,
-            total: 0
+            total: 0,
+            totalMinutes: 0,
+            completedMinutes: 0
           }
         }
         teamStats[teamKey].total++
-        if (c.status === 'completed') teamStats[teamKey].completed++
+        const taskMinutes = c.total_minutes || 0
+        teamStats[teamKey].totalMinutes += taskMinutes
+        if (c.status === 'completed') {
+          teamStats[teamKey].completed++
+          teamStats[teamKey].completedMinutes += taskMinutes
+        }
         if (c.status === 'in_progress') teamStats[teamKey].inProgress++
       }
     })
@@ -310,7 +317,10 @@ function EfficiencyDashboard() {
     // Sort by number of completed tasks (descending) for ranking
     const teamData = Object.values(teamStats).map(team => ({
       ...team,
-      efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0
+      efficiency: team.total > 0 ? Math.round((team.completed / team.total) * 100) : 0,
+      totalHours: Math.round(team.totalMinutes / 60 * 10) / 10, // 1 decimal
+      completedHours: Math.round(team.completedMinutes / 60 * 10) / 10,
+      timeEfficiency: team.totalMinutes > 0 ? Math.round((team.completedMinutes / team.totalMinutes) * 100) : 0
     })).sort((a, b) => b.completed - a.completed)
 
     setTeamPerformance(teamData)
@@ -811,10 +821,11 @@ function EfficiencyDashboard() {
             <tr>
               <th>Rank</th>
               <th>Team</th>
-              <th>Tasks Completed</th>
-              <th>In Progress</th>
-              <th>Total Assigned</th>
-              <th className="progress-cell">Efficiency</th>
+              <th>Tasks Done</th>
+              <th>Hours Done</th>
+              <th>Total Hours</th>
+              <th className="progress-cell">Task %</th>
+              <th className="progress-cell">Hours %</th>
             </tr>
           </thead>
           <tbody>
@@ -832,12 +843,12 @@ function EfficiencyDashboard() {
                     {team.name}
                   </span>
                 </td>
-                <td>{team.completed}</td>
-                <td>{team.inProgress}</td>
-                <td>{team.total}</td>
+                <td>{team.completed}/{team.total}</td>
+                <td>{team.completedHours}h</td>
+                <td>{team.totalHours}h</td>
                 <td className="progress-cell">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div className="progress-bar" style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div className="progress-bar" style={{ flex: 1, minWidth: '60px' }}>
                       <div
                         className="progress-fill"
                         style={{
@@ -847,14 +858,29 @@ function EfficiencyDashboard() {
                         }}
                       />
                     </div>
-                    <span style={{ minWidth: '40px', textAlign: 'right' }}>{team.efficiency}%</span>
+                    <span style={{ minWidth: '35px', textAlign: 'right', fontSize: '0.8rem' }}>{team.efficiency}%</span>
+                  </div>
+                </td>
+                <td className="progress-cell">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div className="progress-bar" style={{ flex: 1, minWidth: '60px' }}>
+                      <div
+                        className="progress-fill"
+                        style={{
+                          width: `${team.timeEfficiency}%`,
+                          background: team.timeEfficiency >= 80 ? '#10B981' :
+                                     team.timeEfficiency >= 50 ? '#F59E0B' : '#EF4444'
+                        }}
+                      />
+                    </div>
+                    <span style={{ minWidth: '35px', textAlign: 'right', fontSize: '0.8rem' }}>{team.timeEfficiency}%</span>
                   </div>
                 </td>
               </tr>
             ))}
             {teamPerformance.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8' }}>
+                <td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>
                   No team data available. Complete tasks and assign teams to see performance metrics.
                 </td>
               </tr>

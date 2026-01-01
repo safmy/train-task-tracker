@@ -293,15 +293,31 @@ function TaskTracker() {
   }
 
   // Load cars for multiple trains (for multi-select or All Trains mode)
+  // Batches requests to avoid URL length limits (500 error)
   const loadCarsForMultipleTrains = async (trainList) => {
     try {
       // Get all unit IDs for all selected trains
       const allUnitIds = trainList.flatMap(t => t.units.map(u => u.id))
 
-      const { data: carsData } = await supabase
-        .from('cars')
-        .select('*, car_types(*), train_units(*), task_completions(*, teams(*))')
-        .in('unit_id', allUnitIds)
+      // Batch requests to avoid URL length limits (max ~50 IDs per request)
+      const BATCH_SIZE = 50
+      const batches = []
+      for (let i = 0; i < allUnitIds.length; i += BATCH_SIZE) {
+        batches.push(allUnitIds.slice(i, i + BATCH_SIZE))
+      }
+
+      // Fetch all batches in parallel
+      const batchResults = await Promise.all(
+        batches.map(batchIds =>
+          supabase
+            .from('cars')
+            .select('*, car_types(*), train_units(*), task_completions(*, teams(*))')
+            .in('unit_id', batchIds)
+        )
+      )
+
+      // Combine results
+      const carsData = batchResults.flatMap(result => result.data || [])
 
       if (carsData) {
         // Add train info to each car for display
@@ -884,8 +900,32 @@ function TaskTracker() {
                 All Trains
               </button>
 
+              {/* Clear Selection Button */}
+              {(viewAllTrains || selectedTrains.length > 1) && (
+                <button
+                  onClick={() => {
+                    setViewAllTrains(false)
+                    setSelectedTrains(trains.length > 0 ? [trains[0]] : [])
+                    setSelectedCar(null)
+                  }}
+                  style={{
+                    padding: '0.375rem 0.75rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.75rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+
               <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                Shift+click to select range
+                Shift+click range • Ctrl+click toggle
               </span>
             </div>
 
