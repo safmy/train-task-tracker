@@ -310,15 +310,31 @@ function TaskTracker() {
     }
   }
 
+  // Get filtered trains based on status filter
+  const getFilteredTrains = () => {
+    return trains.filter(train => {
+      const stats = trainCompletionData[train.name]
+      if (statusFilter === 'in_progress') return stats?.inProgress > 0
+      if (statusFilter === 'pending') return stats?.pending > 0
+      if (statusFilter === 'completed') return stats?.completed > 0
+      return true
+    })
+  }
+
   // Handle train click with shift for multi-select
-  const handleTrainClick = (train, event) => {
+  const handleTrainClick = (train, event, filteredTrainsList) => {
     if (event.shiftKey && lastClickedTrain) {
-      // Shift+click: select range of trains
-      const startIdx = trains.findIndex(t => t.name === lastClickedTrain.name)
-      const endIdx = trains.findIndex(t => t.name === train.name)
-      const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
-      const rangeTrains = trains.slice(from, to + 1)
-      setSelectedTrains(rangeTrains)
+      // Shift+click: select range of trains from filtered list
+      const startIdx = filteredTrainsList.findIndex(t => t.name === lastClickedTrain.name)
+      const endIdx = filteredTrainsList.findIndex(t => t.name === train.name)
+      if (startIdx !== -1 && endIdx !== -1) {
+        const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+        const rangeTrains = filteredTrainsList.slice(from, to + 1)
+        setSelectedTrains(rangeTrains)
+      } else {
+        // Fallback if last clicked train not in filtered list
+        setSelectedTrains([train])
+      }
       setViewAllTrains(false)
     } else if (event.ctrlKey || event.metaKey) {
       // Ctrl/Cmd+click: toggle single train in selection
@@ -863,18 +879,11 @@ function TaskTracker() {
           </div>
 
           {/* Train Buttons Grid */}
-          {!isTrainSelectorCollapsed && (
+          {!isTrainSelectorCollapsed && (() => {
+            const filteredTrainsList = getFilteredTrains()
+            return (
             <div className="unit-selector">
-              {trains
-                .filter(train => {
-                  const stats = trainCompletionData[train.name]
-                  // Filter by status if set
-                  if (statusFilter === 'in_progress') return stats?.inProgress > 0
-                  if (statusFilter === 'pending') return stats?.pending > 0
-                  if (statusFilter === 'completed') return stats?.completed > 0
-                  return true
-                })
-                .map(train => {
+              {filteredTrainsList.map(train => {
                   const stats = trainCompletionData[train.name]
                   const percent = stats?.percent || 0
                   const progressColor = percent === 100 ? '#10B981' :
@@ -889,7 +898,7 @@ function TaskTracker() {
                     <button
                       key={train.name}
                       className={`unit-btn ${isSelected ? 'active' : ''}`}
-                      onClick={(e) => handleTrainClick(train, e)}
+                      onClick={(e) => handleTrainClick(train, e, filteredTrainsList)}
                       style={{
                         position: 'relative',
                         overflow: 'hidden',
@@ -946,7 +955,8 @@ function TaskTracker() {
                   )
                 })}
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
 
@@ -1027,8 +1037,13 @@ function TaskTracker() {
                 const progress = getCarProgress(car)
                 const isSelected = selectedCar?.id === car.id
                 const is3Car = car.car_types?.category === '3 CAR'
-                // Add separator between 3 CAR and 4 CAR units
-                const showSeparator = idx > 0 && is3Car === false && cars[idx - 1]?.car_types?.category === '3 CAR'
+
+                // Check if this is a new train (different from previous car)
+                const prevCar = idx > 0 ? cars[idx - 1] : null
+                const isNewTrain = idx === 0 || car.trainNumber !== prevCar?.trainNumber
+
+                // Add separator between 3 CAR and 4 CAR units within same train
+                const showCarTypeSeparator = idx > 0 && !isNewTrain && is3Car === false && prevCar?.car_types?.category === '3 CAR'
 
                 // Check if car has tasks matching the current filter
                 const hasMatchingTasks = statusFilter === 'all' ? true :
@@ -1038,7 +1053,58 @@ function TaskTracker() {
 
                 return (
                   <div key={car.id} style={{ display: 'contents' }}>
-                    {showSeparator && (
+                    {/* Train separator with label when multi-selecting */}
+                    {isNewTrain && idx > 0 && (selectedTrains.length > 1 || viewAllTrains) && (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        margin: '0 12px',
+                        alignSelf: 'stretch',
+                        justifyContent: 'center'
+                      }}>
+                        <div style={{
+                          width: '3px',
+                          flex: 1,
+                          background: 'var(--primary)',
+                          borderRadius: '2px'
+                        }} />
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: '700',
+                          background: 'var(--primary)',
+                          color: 'white',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          margin: '4px 0'
+                        }}>
+                          T{car.trainNumber}
+                        </span>
+                        <div style={{
+                          width: '3px',
+                          flex: 1,
+                          background: 'var(--primary)',
+                          borderRadius: '2px'
+                        }} />
+                      </div>
+                    )}
+                    {/* Train label for first car when multi-selecting */}
+                    {isNewTrain && idx === 0 && (selectedTrains.length > 1 || viewAllTrains) && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '-20px',
+                        left: '0',
+                        fontSize: '0.625rem',
+                        fontWeight: '700',
+                        background: 'var(--primary)',
+                        color: 'white',
+                        padding: '2px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        T{car.trainNumber}
+                      </div>
+                    )}
+                    {showCarTypeSeparator && (
                       <div style={{
                         width: '4px',
                         height: '100px',

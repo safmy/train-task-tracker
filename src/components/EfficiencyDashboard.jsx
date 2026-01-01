@@ -6,29 +6,32 @@ import {
 } from 'recharts'
 import { TrendingUp, Users, CheckCircle, Clock, Target, Award, Filter, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react'
 
-const CACHE_KEY = 'train_tracker_dashboard_cache_v2'
-const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp_v2'
+const CACHE_KEY = 'train_tracker_dashboard_cache_v4'
+const CACHE_TIMESTAMP_KEY = 'train_tracker_dashboard_timestamp_v4'
 
 // Compress data for localStorage (only keep essential fields)
+// Target: under 5MB to fit in localStorage
 const compressForCache = (cars, completions) => {
-  // Only keep essential fields to reduce size
+  // Only keep minimal fields - exclude IDs where possible
   const compressedCars = cars.map(c => ({
-    id: c.id,
-    unit_id: c.unit_id,
-    tn: c.train_units?.train_number // train_number
+    i: c.id,
+    u: c.unit_id,
+    t: c.train_units?.train_number // train_number
   }))
 
-  const compressedCompletions = completions.map(c => ({
-    id: c.id,
-    car_id: c.car_id,
-    s: c.status, // status
-    p: c.phase, // phase
-    ca: c.completed_at, // completed_at
-    tn: c.cars?.train_units?.train_number, // train_number
-    ti: c.teams?.id, // team_id
-    tm: c.teams?.name, // team_name
-    tc: c.teams?.color // team_color
-  }))
+  // For completions, only store what's needed for dashboard stats
+  // Skip completions without meaningful data
+  const compressedCompletions = completions
+    .filter(c => c.status) // Must have status
+    .map(c => ({
+      c: c.car_id, // car_id
+      s: c.status === 'completed' ? 1 : c.status === 'in_progress' ? 2 : 0, // status as number
+      d: c.completed_at ? c.completed_at.split('T')[0] : null, // date only, no time
+      t: c.cars?.train_units?.train_number, // train number
+      m: c.teams?.id ? c.teams.id.substring(0, 8) : null, // team_id truncated
+      n: c.teams?.name, // team name
+      b: c.completed_by // completed_by array for TFOS detection
+    }))
 
   return { cars: compressedCars, completions: compressedCompletions }
 }
@@ -36,19 +39,21 @@ const compressForCache = (cars, completions) => {
 // Decompress data from localStorage
 const decompressFromCache = (cached) => {
   const cars = cached.cars.map(c => ({
-    id: c.id,
-    unit_id: c.unit_id,
-    train_units: { train_number: c.tn }
+    id: c.i,
+    unit_id: c.u,
+    train_units: { train_number: c.t }
   }))
 
+  // Convert status number back to string
+  const statusMap = { 0: 'pending', 1: 'completed', 2: 'in_progress' }
+
   const completions = cached.completions.map(c => ({
-    id: c.id,
-    car_id: c.car_id,
-    status: c.s,
-    phase: c.p,
-    completed_at: c.ca,
-    cars: { train_units: { train_number: c.tn } },
-    teams: c.ti ? { id: c.ti, name: c.tm, color: c.tc } : null
+    car_id: c.c,
+    status: statusMap[c.s] || 'pending',
+    completed_at: c.d ? c.d + 'T00:00:00' : null,
+    cars: { train_units: { train_number: c.t } },
+    teams: c.n ? { id: c.m, name: c.n } : null,
+    completed_by: c.b || null
   }))
 
   return { cars, completions }
@@ -261,21 +266,42 @@ function EfficiencyDashboard() {
     // Calculate team performance
     const teamStats = {}
     completions.forEach(c => {
+      let teamKey = null
+      let teamName = null
+      let teamColor = null
+
       if (c.teams) {
+        // Has a team assigned in database
+        teamKey = c.teams.id
         // Rename "Night Shift" to "Team D"
-        const teamName = c.teams.name === 'Night Shift' ? 'Team D' : c.teams.name
-        if (!teamStats[c.teams.id]) {
-          teamStats[c.teams.id] = {
+        teamName = c.teams.name === 'Night Shift' ? 'Team D' : c.teams.name
+        teamColor = c.teams.color
+      } else if (c.completed_by) {
+        // No team assigned - check if TFOS is in completed_by
+        const completedByArr = Array.isArray(c.completed_by) ? c.completed_by : [c.completed_by]
+        const hasTFOS = completedByArr.some(name =>
+          name && name.toString().toUpperCase().includes('TFOS')
+        )
+        if (hasTFOS) {
+          teamKey = 'TFOS'
+          teamName = 'TFOS'
+          teamColor = '#EF4444' // Red color for TFOS
+        }
+      }
+
+      if (teamKey) {
+        if (!teamStats[teamKey]) {
+          teamStats[teamKey] = {
             name: teamName,
-            color: c.teams.color,
+            color: teamColor,
             completed: 0,
             inProgress: 0,
             total: 0
           }
         }
-        teamStats[c.teams.id].total++
-        if (c.status === 'completed') teamStats[c.teams.id].completed++
-        if (c.status === 'in_progress') teamStats[c.teams.id].inProgress++
+        teamStats[teamKey].total++
+        if (c.status === 'completed') teamStats[teamKey].completed++
+        if (c.status === 'in_progress') teamStats[teamKey].inProgress++
       }
     })
 
@@ -406,6 +432,8 @@ function EfficiencyDashboard() {
           // Also clear old version cache keys if they exist
           localStorage.removeItem('train_tracker_dashboard_cache')
           localStorage.removeItem('train_tracker_dashboard_timestamp')
+          localStorage.removeItem('train_tracker_dashboard_cache_v3')
+          localStorage.removeItem('train_tracker_dashboard_timestamp_v3')
         }
       }
 
@@ -762,7 +790,9 @@ function EfficiencyDashboard() {
                   marginBottom: '0.75rem',
                   color: teamName === 'Team A' ? '#3B82F6' :
                          teamName === 'Team B' ? '#10B981' :
-                         teamName === 'Team C' ? '#F59E0B' : '#8B5CF6',
+                         teamName === 'Team C' ? '#F59E0B' :
+                         teamName === 'Team D' ? '#8B5CF6' :
+                         teamName === 'TFOS' ? '#EF4444' : '#94a3b8',
                   fontWeight: '600'
                 }}>
                   {teamName}
