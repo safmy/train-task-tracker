@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { Check, Clock, Circle, X, Upload, Train, AlertCircle, Filter, ChevronDown, ChevronUp } from 'lucide-react'
+import { Check, Clock, Circle, X, Train, AlertCircle, Filter, ChevronDown, ChevronUp } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 function TaskTracker() {
@@ -139,6 +139,13 @@ function TaskTracker() {
 
   useEffect(() => {
     loadData()
+
+    // Listen for upload trigger from navbar
+    const handleUploadTrigger = () => {
+      fileInputRef.current?.click()
+    }
+    window.addEventListener('triggerExcelUpload', handleUploadTrigger)
+    return () => window.removeEventListener('triggerExcelUpload', handleUploadTrigger)
   }, [])
 
   useEffect(() => {
@@ -745,23 +752,30 @@ function TaskTracker() {
 
   return (
     <div className="task-tracker">
-      {/* Upload Section and Filters */}
+      {/* Hidden file input for Excel upload (triggered from navbar) */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".xlsx,.xls"
+        onChange={handleFileUpload}
+        style={{ display: 'none' }}
+      />
+
+      {/* Upload Status and Filters */}
       <div className="upload-section" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept=".xlsx,.xls"
-          onChange={handleFileUpload}
-          style={{ display: 'none' }}
-        />
-        <button
-          className="btn btn-primary"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          <Upload size={16} />
-          {uploading ? 'Uploading...' : 'Upload Excel'}
-        </button>
+        {uploading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
+            <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
+            <span>Uploading...</span>
+          </div>
+        )}
+
+        {uploadStatus && (
+          <div className={`upload-status ${uploadStatus.type}`}>
+            <AlertCircle size={16} />
+            {uploadStatus.message}
+          </div>
+        )}
 
         {/* Filter Controls */}
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginLeft: 'auto' }}>
@@ -809,26 +823,9 @@ function TaskTracker() {
             <option value="pending">Not Started</option>
           </select>
 
-          {/* Text/Regex Filter */}
-          <input
-            type="text"
-            value={taskTextFilter}
-            onChange={(e) => setTaskTextFilter(e.target.value)}
-            placeholder="Filter tasks (regex)..."
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-card)',
-              color: 'var(--text)',
-              fontSize: '0.875rem',
-              minWidth: '180px'
-            }}
-          />
-
-          {(phaseFilter !== 'all' || statusFilter !== 'all' || taskTextFilter) && (
+          {(phaseFilter !== 'all' || statusFilter !== 'all') && (
             <button
-              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); setTaskTextFilter(''); }}
+              onClick={() => { setPhaseFilter('all'); setStatusFilter('all'); }}
               style={{
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.5rem',
@@ -843,13 +840,6 @@ function TaskTracker() {
             </button>
           )}
         </div>
-
-        {uploadStatus && (
-          <div className={`upload-status ${uploadStatus.type}`}>
-            <AlertCircle size={16} />
-            {uploadStatus.message}
-          </div>
-        )}
       </div>
 
       {/* Train Selector */}
@@ -1281,10 +1271,12 @@ function TaskTracker() {
         <div className="task-panel">
           <div
             className="task-panel-header"
-            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            onClick={() => setIsTaskListCollapsed(!isTaskListCollapsed)}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}
           >
-            <div>
+            <div
+              onClick={() => setIsTaskListCollapsed(!isTaskListCollapsed)}
+              style={{ cursor: 'pointer' }}
+            >
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {viewAllCars ? (
                   viewAllTrains ? 'All Trains - All Cars' :
@@ -1342,7 +1334,47 @@ function TaskTracker() {
                 })()}
               </div>
             </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+
+            {/* Text/Regex Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={taskTextFilter}
+                onChange={(e) => setTaskTextFilter(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="Filter tasks (regex)..."
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text)',
+                  fontSize: '0.875rem',
+                  minWidth: '200px'
+                }}
+              />
+              {taskTextFilter && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTaskTextFilter(''); }}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <span
+              onClick={() => setIsTaskListCollapsed(!isTaskListCollapsed)}
+              style={{ fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer' }}
+            >
               Click to {isTaskListCollapsed ? 'expand' : 'collapse'}
             </span>
           </div>
