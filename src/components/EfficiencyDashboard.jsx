@@ -56,10 +56,11 @@ const decompressFromCache = (cached) => {
 
 // Team roster - who belongs to each team
 const TEAM_ROSTER = {
-  'Team A': ['AS', 'JT', 'CB', 'JD', 'KM', 'CP', 'KA', 'TFOS'],
+  'Team A': ['AS', 'JT', 'CB', 'JD', 'KM', 'CP', 'KA'],
   'Team B': ['LN', 'NA', 'PS', 'AOO', 'JN', 'DK', 'DH', 'JL'],
   'Team C': ['SC', 'MA', 'CC', 'OM', 'AL', 'VN', 'RN', 'LVN'],
-  'Team D': ['SA', 'MR', 'AR', 'DB', 'GT', 'UQ', 'BP', 'RB']
+  'Team D': ['SA', 'MR', 'AR', 'DB', 'GT', 'UQ', 'BP', 'RB'],
+  'TFOS': ['TFOS'] // Unknown person - needs manual identification
 }
 
 function EfficiencyDashboard() {
@@ -88,10 +89,20 @@ function EfficiencyDashboard() {
     loadTrains()
 
     // Check for cached data on initial load - load directly from localStorage
-    const cached = localStorage.getItem(CACHE_KEY)
-    const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
+    let cached = null
+    let timestamp = null
 
-    console.log('Checking cache:', { hasCached: !!cached, hasTimestamp: !!timestamp })
+    try {
+      cached = localStorage.getItem(CACHE_KEY)
+      timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY)
+      console.log('Cache check:', {
+        hasCached: !!cached,
+        hasTimestamp: !!timestamp,
+        cacheSize: cached ? (cached.length / 1024 / 1024).toFixed(2) + 'MB' : '0'
+      })
+    } catch (e) {
+      console.error('Error reading localStorage:', e)
+    }
 
     if (cached && timestamp) {
       try {
@@ -101,14 +112,25 @@ function EfficiencyDashboard() {
           completions: parsedCache.completions?.length
         })
 
-        // Decompress the cached data
-        const decompressed = decompressFromCache(parsedCache)
-        setCachedData(decompressed)
-        setCacheTimestamp(new Date(timestamp))
+        if (parsedCache.cars?.length > 0 && parsedCache.completions?.length > 0) {
+          // Decompress the cached data
+          const decompressed = decompressFromCache(parsedCache)
+          setCachedData(decompressed)
+          setCacheTimestamp(new Date(timestamp))
 
-        // Load dashboard with cached data immediately - NO server fetch
-        loadDashboardDataWithCache(decompressed)
-        return // Exit early - don't fetch from server
+          // Load dashboard with cached data immediately - NO server fetch
+          console.log('Loading from cache - NO server fetch')
+          loadDashboardDataWithCache(decompressed)
+
+          // Listen for refresh events from navbar
+          const handleRefreshEvent = () => {
+            handleRefresh()
+          }
+          window.addEventListener('refreshDashboardData', handleRefreshEvent)
+          return () => window.removeEventListener('refreshDashboardData', handleRefreshEvent)
+        } else {
+          console.log('Cache data is empty, will fetch from server')
+        }
       } catch (e) {
         console.error('Error parsing cache:', e)
         // Clear invalid cache
@@ -118,7 +140,7 @@ function EfficiencyDashboard() {
     }
 
     // No valid cache - must load from server
-    console.log('No cache found, loading from server...')
+    console.log('No valid cache found, loading from server...')
     loadDashboardData(true)
 
     // Listen for refresh events from navbar
@@ -298,16 +320,23 @@ function EfficiencyDashboard() {
 
     // Calculate completions by day (from actual data, not just last 14 days)
     const dailyStats = {}
+    const now = new Date()
+    const maxValidYear = now.getFullYear() + 1 // Allow up to next year
+    const minValidYear = 2020 // No dates before 2020
 
     completions.forEach(c => {
       if (c.completed_at) {
         const dateStr = c.completed_at.split('T')[0]
         // Validate date - must be a valid format YYYY-MM-DD
         if (dateStr && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          if (!dailyStats[dateStr]) {
-            dailyStats[dateStr] = { date: dateStr, count: 0 }
+          // Additional validation: check year is reasonable
+          const year = parseInt(dateStr.substring(0, 4))
+          if (year >= minValidYear && year <= maxValidYear) {
+            if (!dailyStats[dateStr]) {
+              dailyStats[dateStr] = { date: dateStr, count: 0 }
+            }
+            dailyStats[dateStr].count++
           }
-          dailyStats[dateStr].count++
         }
       }
     })

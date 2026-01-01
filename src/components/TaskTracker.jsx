@@ -5,7 +5,9 @@ import * as XLSX from 'xlsx'
 
 function TaskTracker() {
   const [trains, setTrains] = useState([]) // Grouped by train_name
-  const [selectedTrain, setSelectedTrain] = useState(null)
+  const [selectedTrains, setSelectedTrains] = useState([]) // Support multiple trains
+  const [viewAllTrains, setViewAllTrains] = useState(false) // Toggle to view all trains
+  const [lastClickedTrain, setLastClickedTrain] = useState(null) // For shift+click range selection
   const [cars, setCars] = useState([])
   const [teams, setTeams] = useState([])
   const [carTypes, setCarTypes] = useState([])
@@ -33,6 +35,9 @@ function TaskTracker() {
   const [isCarVisualCollapsed, setIsCarVisualCollapsed] = useState(false)
   const [viewAllCars, setViewAllCars] = useState(false) // View tasks from all cars
   const [trainCompletionData, setTrainCompletionData] = useState({}) // Cache train completion stats
+
+  // Backward compatibility helper - get first selected train
+  const selectedTrain = selectedTrains.length > 0 ? selectedTrains[0] : null
 
   // Get unique phases from current car's tasks
   const getUniquePhases = (tasks) => {
@@ -84,10 +89,12 @@ function TaskTracker() {
   }, [])
 
   useEffect(() => {
-    if (selectedTrain) {
-      loadCarsForTrain(selectedTrain)
+    if (viewAllTrains && trains.length > 0) {
+      loadCarsForMultipleTrains(trains)
+    } else if (selectedTrains.length > 0) {
+      loadCarsForMultipleTrains(selectedTrains)
     }
-  }, [selectedTrain, statusFilter])
+  }, [selectedTrains, viewAllTrains, statusFilter])
 
   const loadData = async () => {
     setLoading(true)
@@ -124,7 +131,8 @@ function TaskTracker() {
         setTrains(trainList)
 
         if (trainList.length > 0) {
-          setSelectedTrain(trainList[0])
+          setSelectedTrains([trainList[0]])
+          setLastClickedTrain(trainList[0])
         }
 
         // Load completion stats for all trains
@@ -230,6 +238,106 @@ function TaskTracker() {
     } catch (error) {
       console.error('Error loading cars:', error)
     }
+  }
+
+  // Load cars for multiple trains (for multi-select or All Trains mode)
+  const loadCarsForMultipleTrains = async (trainList) => {
+    try {
+      // Get all unit IDs for all selected trains
+      const allUnitIds = trainList.flatMap(t => t.units.map(u => u.id))
+
+      const { data: carsData } = await supabase
+        .from('cars')
+        .select('*, car_types(*), train_units(*), task_completions(*, teams(*))')
+        .in('unit_id', allUnitIds)
+
+      if (carsData) {
+        // Add train info to each car for display
+        const carsWithTrainInfo = carsData.map(car => {
+          const train = trainList.find(t => t.units.some(u => u.id === car.unit_id))
+          return {
+            ...car,
+            trainNumber: train?.trainNumber,
+            trainName: train?.name
+          }
+        })
+
+        // Sort cars by train number first, then by car type
+        const sortOrder = {
+          'DM 3 CAR': 1,
+          'Trailer 3 Car': 2,
+          'UNDM 3 CAR': 3,
+          'DM 4 Car': 4,
+          'Trailer 4 Car': 5,
+          'Special Trailer 4 Car': 6,
+          'UNDM 4 Car': 7
+        }
+
+        const sortedCars = carsWithTrainInfo.sort((a, b) => {
+          // Sort by train number first
+          if (a.trainNumber !== b.trainNumber) {
+            return (a.trainNumber || 0) - (b.trainNumber || 0)
+          }
+          // Then by car type
+          const orderA = sortOrder[a.car_types?.name] || 99
+          const orderB = sortOrder[b.car_types?.name] || 99
+          return orderA - orderB
+        })
+
+        setCars(sortedCars)
+        // Flatten all completions
+        const allCompletions = sortedCars.flatMap(c => c.task_completions || [])
+        setTaskCompletions(allCompletions)
+
+        // Auto-select car based on current filter
+        if (sortedCars.length > 0) {
+          if (statusFilter !== 'all') {
+            const carWithMatchingTasks = sortedCars.find(car =>
+              car.task_completions?.some(t => t.status === statusFilter)
+            )
+            if (carWithMatchingTasks) {
+              setSelectedCar(carWithMatchingTasks)
+            } else {
+              setSelectedCar(sortedCars[0])
+            }
+          } else {
+            setSelectedCar(sortedCars[0])
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading cars for multiple trains:', error)
+    }
+  }
+
+  // Handle train click with shift for multi-select
+  const handleTrainClick = (train, event) => {
+    if (event.shiftKey && lastClickedTrain) {
+      // Shift+click: select range of trains
+      const startIdx = trains.findIndex(t => t.name === lastClickedTrain.name)
+      const endIdx = trains.findIndex(t => t.name === train.name)
+      const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+      const rangeTrains = trains.slice(from, to + 1)
+      setSelectedTrains(rangeTrains)
+      setViewAllTrains(false)
+    } else if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd+click: toggle single train in selection
+      setSelectedTrains(prev => {
+        const isSelected = prev.some(t => t.name === train.name)
+        if (isSelected) {
+          return prev.filter(t => t.name !== train.name)
+        } else {
+          return [...prev, train]
+        }
+      })
+      setViewAllTrains(false)
+    } else {
+      // Regular click: select single train
+      setSelectedTrains([train])
+      setViewAllTrains(false)
+    }
+    setLastClickedTrain(train)
+    setSelectedCar(null)
   }
 
   const getCarProgress = (car) => {
@@ -654,43 +762,73 @@ function TaskTracker() {
             marginBottom: '0.5rem',
             flexWrap: 'wrap'
           }}>
-            <div
-              onClick={() => setIsTrainSelectorCollapsed(!isTrainSelectorCollapsed)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                cursor: 'pointer',
-                padding: '0.5rem',
-                borderRadius: '0.5rem',
-                background: 'var(--bg-secondary)'
-              }}
-            >
-              {isTrainSelectorCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-              <span style={{ fontWeight: '600' }}>
-                Trains ({(() => {
-                  const filtered = trains.filter(train => {
-                    const stats = trainCompletionData[train.name]
-                    if (statusFilter === 'in_progress') return stats?.inProgress > 0
-                    if (statusFilter === 'pending') return stats?.pending > 0
-                    if (statusFilter === 'completed') return stats?.completed > 0
-                    return true
-                  })
-                  return filtered.length
-                })()})
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {isTrainSelectorCollapsed ? 'Click to expand' : 'Click to collapse'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div
+                onClick={() => setIsTrainSelectorCollapsed(!isTrainSelectorCollapsed)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  padding: '0.5rem',
+                  borderRadius: '0.5rem',
+                  background: 'var(--bg-secondary)'
+                }}
+              >
+                {isTrainSelectorCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                <span style={{ fontWeight: '600' }}>
+                  Trains ({(() => {
+                    const filtered = trains.filter(train => {
+                      const stats = trainCompletionData[train.name]
+                      if (statusFilter === 'in_progress') return stats?.inProgress > 0
+                      if (statusFilter === 'pending') return stats?.pending > 0
+                      if (statusFilter === 'completed') return stats?.completed > 0
+                      return true
+                    })
+                    return filtered.length
+                  })()})
+                  {selectedTrains.length > 1 && !viewAllTrains && ` • ${selectedTrains.length} selected`}
+                  {viewAllTrains && ' • All'}
+                </span>
+              </div>
+
+              {/* All Trains Toggle */}
+              <button
+                onClick={() => {
+                  setViewAllTrains(!viewAllTrains)
+                  if (!viewAllTrains) {
+                    setSelectedTrains([])
+                    setSelectedCar(null)
+                  }
+                }}
+                style={{
+                  padding: '0.375rem 0.75rem',
+                  borderRadius: '0.375rem',
+                  border: viewAllTrains ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  background: viewAllTrains ? 'var(--primary)' : 'transparent',
+                  color: viewAllTrains ? 'white' : 'var(--text)',
+                  fontSize: '0.75rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                All Trains
+              </button>
+
+              <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                Shift+click to select range
               </span>
             </div>
 
             {/* Train Dropdown */}
             <select
-              value={selectedTrain?.name || ''}
+              value={selectedTrains.length === 1 ? selectedTrains[0]?.name : ''}
               onChange={(e) => {
                 const train = trains.find(t => t.name === e.target.value)
                 if (train) {
-                  setSelectedTrain(train)
+                  setSelectedTrains([train])
+                  setViewAllTrains(false)
                   setSelectedCar(null)
                 }
               }}
@@ -745,17 +883,17 @@ function TaskTracker() {
                                        percent >= 20 ? '#F59E0B' :
                                        percent > 0 ? '#EF4444' : '#475569'
 
+                  const isSelected = viewAllTrains || selectedTrains.some(t => t.name === train.name)
+
                   return (
                     <button
                       key={train.name}
-                      className={`unit-btn ${selectedTrain?.name === train.name ? 'active' : ''}`}
-                      onClick={() => {
-                        setSelectedTrain(train)
-                        setSelectedCar(null)
-                      }}
+                      className={`unit-btn ${isSelected ? 'active' : ''}`}
+                      onClick={(e) => handleTrainClick(train, e)}
                       style={{
                         position: 'relative',
-                        overflow: 'hidden'
+                        overflow: 'hidden',
+                        outline: isSelected && selectedTrains.length > 1 ? '2px solid var(--primary)' : 'none'
                       }}
                     >
                       {/* Progress bar background */}
@@ -993,7 +1131,15 @@ function TaskTracker() {
           >
             <div>
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                {viewAllCars ? `All Cars - ${selectedTrain?.trainNumber ? `T${selectedTrain.trainNumber}` : selectedTrain?.name}` : `${selectedCar.car_types?.name} - Car #${selectedCar.car_number}`}
+                {viewAllCars ? (
+                  viewAllTrains ? 'All Trains - All Cars' :
+                  selectedTrains.length > 1 ? `${selectedTrains.length} Trains - All Cars` :
+                  `All Cars - ${selectedTrain?.trainNumber ? `T${selectedTrain.trainNumber}` : selectedTrain?.name}`
+                ) : (
+                  selectedCar?.trainNumber ?
+                    `T${selectedCar.trainNumber} - ${selectedCar.car_types?.name} #${selectedCar.car_number}` :
+                    `${selectedCar?.car_types?.name} - Car #${selectedCar?.car_number}`
+                )}
                 {isTaskListCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
               </h2>
               <div className="task-panel-stats">

@@ -55,16 +55,18 @@ def load_phase_mapping():
 INITIAL_TO_TEAM = {
     # Team A - general group
     "AS": "Team A", "JT": "Team A", "CB": "Team A", "JD": "Team A",
-    "KM": "Team A", "CP": "Team A", "KA": "Team A", "TFOS": "Team A",
+    "KM": "Team A", "CP": "Team A", "KA": "Team A",
     # Team B
     "LN": "Team B", "NA": "Team B", "PS": "Team B", "AOO": "Team B",
     "JN": "Team B", "DK": "Team B", "DH": "Team B", "JL": "Team B",
     # Team C
     "SC": "Team C", "MA": "Team C", "CC": "Team C", "OM": "Team C",
     "AL": "Team C", "VN": "Team C", "RN": "Team C", "LVN": "Team C",
-    # Night Shift
+    # Night Shift (Team D)
     "SA": "Night Shift", "MR": "Night Shift", "AR": "Night Shift", "DB": "Night Shift",
     "GT": "Night Shift", "UQ": "Night Shift", "BP": "Night Shift", "RB": "Night Shift",
+    # TFOS - Unknown person, separate category until identified
+    "TFOS": "TFOS",
 }
 
 
