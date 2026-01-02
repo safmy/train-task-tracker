@@ -672,7 +672,7 @@ function EfficiencyDashboard() {
           teamStats[teamKey].completedMinutes += adjustedMinutes
 
           // Track person-days for efficiency calculation
-          // Each unique (person, date) combination = 8 hours available
+          // Each unique (person, date) combination = 12 hours available (12-hour shifts)
           if (c.completed_at && c.completed_by) {
             const dateStr = c.completed_at.split('T')[0]
             const completedByArr = Array.isArray(c.completed_by) ? c.completed_by : [c.completed_by]
@@ -695,9 +695,9 @@ function EfficiencyDashboard() {
       .filter(([teamKey, team]) => team.name !== 'TFOS') // Exclude TFOS
       .map(([teamKey, team]) => {
         const personDays = personDaysTracker[teamKey]?.size || 0
-        const availableHours = personDays * 8
+        const availableHours = personDays * 12  // 12-hour shifts
         const taskHours = team.completedMinutes / 60
-        // Real efficiency = work hours / available hours (8h per person per day)
+        // Real efficiency = work hours / available hours (12h per person per shift)
         const realEfficiency = availableHours > 0 ? Math.round((taskHours / availableHours) * 100) : 0
 
         return {
@@ -1357,11 +1357,11 @@ function EfficiencyDashboard() {
           </tbody>
         </table>
         <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          <strong>Efficiency Formula:</strong> (Task Hours × Number of People) ÷ Available Hours (8h × Person-Days)
+          <strong>Efficiency Formula:</strong> (Task Hours × Number of People) ÷ Available Hours (12h × Person-Days)
           <br />
-          <em>Example: A 7h task requiring 2 people = 14 man-hours. If AS works 3 days on such tasks, efficiency = 14h ÷ (8h × 3) = 58.3%</em>
+          <em>Example: A 2.5h task requiring 4 people = 10 man-hours. If AS works 3 shifts on such tasks, efficiency = 10h ÷ (12h × 3) = 27.8%</em>
           <br />
-          <em style={{ color: 'var(--accent)' }}>Note: Task hours are multiplied by number of operators required (from Excel column M) for accurate man-hour calculations.</em>
+          <em style={{ color: 'var(--accent)' }}>Note: Task hours are multiplied by number of operators required. Available hours based on 12-hour shifts.</em>
         </div>
       </div>
 
