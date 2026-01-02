@@ -92,6 +92,355 @@ const TEAM_ROSTER = {
   'TFOS': ['TFOS'] // Unknown person - needs manual identification
 }
 
+// Task name -> Number of people mapping (from Excel column M)
+// This multiplier is needed for accurate efficiency calculation
+// A 7-hour job with 2 people = 14 man-hours of work
+const TASK_PEOPLE_MAP = {
+  "DM UNDERFRAME REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "DM CAB DRIVERS SIDE REMOVE/REFIT EMERGENCY LIGHT INVERTER": 1,
+  "DM CAB NON DRIVERS SIDE REMOVE/REFIT EMERGENCY LIGHT INVERTER": 1,
+  "DM  SALOON REMOVE/REFIT EMERGENCY LIGHT INVERTERS": 1,
+  "DM CAB NON DRIVERS SIDE REMOVE/REFIT SIEMENS RELAYS": 1,
+  "DM CAB DRIVERS SIDE REMOVE/REFIT SIEMENS RELAYS": 1,
+  "DM CAR REMOVE/REFIT 4 POLE CIRCUIT BREAKER": 2,
+  "DM CAB DRIVERS SIDE REMOVE/REFIT ROTARY SWITCHES": 1,
+  "DM CAB NON DRIVERS SIDE REMOVE/REFIT ROTARY SWITCHES": 1,
+  "DM CAR REMOVE/REFIT AUXILIARY SUPPLY BREAKER (ASB)": 1,
+  "DM CAB NON DRIVERS SIDE REMOVE/REFIT MCBS": 1,
+  "DM  SALOON REMOVE/REFIT MCBS": 1,
+  "DM CAB DRIVERS SIDE REMOVE/REFIT MORS SMITT RELAY": 1,
+  "DM CAB NON DRIVERS SIDE REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "DM  SALOON REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "DM - TRACTION CUT-OUT SWITCH": 1,
+  "DM - SHED SUPPLY SWITCH AND RECEPTACLE ASSEMBLY": 1,
+  "DM - CAR REMOVE/REFIT SHOEGEAR VOLTAGE & REVERSE VOLTAGE RELAY": 2,
+  "DM - REMOVE/REFIT CURRENT LIMITING INDUCTOR": 2,
+  "DM - CURRENT LINK FILTER INDUCTOR (AUXILIARY LINK FILTER INDUCTOR)": 2,
+  "DM - CAR REMOVE/REFIT LINE FILTER INDUCTOR": 1,
+  "DM - CONTROL SUPPLY RESISTOR (CSZ)": 2,
+  "DM - AUXILIARY STEP-DOWN CHOPPER SNUBBER RESISTOR": 1,
+  "DM CAR REMOVE BOGIE A": 4,
+  "DM CAR REFIT BOGIE A": 4,
+  "DM CAR REMOVE BOGIE D": 4,
+  "DM CAR REFIT BOGIE D": 4,
+  "DM UNDERFRAME REMOVE/REFIT LINE BREAKER CONTACTOR 1 AND 3": 2,
+  "DM UNDERFRAME REMOVE/REFIT LINE BREAKER CONTACTOR 2 AND 4": 2,
+  "DM CAR REMOVE/REFIT FILTER HARD CROWBAR THYRISTOR ASSEMBLY": 1,
+  "DM CAR REMOVE/REFIT POWER SUPPLY UNIT": 2,
+  "DM UNDERFRAME LOCATION 412 REMOVE/REFIT AUXILIARY CONVERTER ELECTRONIC MODULE": 2,
+  "DM CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE A": 2,
+  "DM CAR REMOVE/REFIT PARKING BRAKE DROP HOSE A": 2,
+  "DM CAR REMOVE/REFIT SLEETBRUSH DROP HOSE (POSITIVE)": 1,
+  "DM CAR REMOVE/REFIT SLEETBRUSH DROP HOSE (NEGATIVE)": 1,
+  "DM CAR REMOVE/REFIT SLEETBRUSH CYLINDER HOSE (POSITIVE)": 1,
+  "DM CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE D": 2,
+  "DM CAR REMOVE/REFIT PARKING BRAKE DROP HOSE D": 2,
+  "DM - WHEEL SPEED PROBE - MOTOR": 1,
+  "DM -  REMOVE/REFIT LINE CONTACTOR AIR SUPPLY": 2,
+  "DM CAR REMOVE/REFIT UNCOUPLER SWITCH DM": 2,
+  "DM CAR REMOVE/REFIT PROPULSION INVERTER MODULE": 2,
+  "DM CAR REMOVE/REFIT LINE FILTER CAPACITOR TRAY 10 CAP": 2,
+  "DM CAR REMOVE/REFIT LINE FILTER CAPACITOR TRAY 7 CAP - ALFK": 2,
+  "DM CAR REMOVE/REFIT AUXILIARY INVERTER AND RHEOSTATIC BRAKE MODULE": 2,
+  "DM CAB REMOVE/REFIT TRACTION BRAKE CONTROLLER": 2,
+  "DM SALOON REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 1 (FOR ALL CARS)": 1,
+  "DM CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 2 (FOR DM/UNDM)": 1,
+  "DM CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / AUTO DRAIN / WHISLTE)": 1,
+  "DM UNDERFRAME REMOVE/REFIT VARIABLE LOAD VALVE - DM/UNDM CAR": 1,
+  "DM UNDERFRAME CAR REMOVE/REFIT BRAKE RELEASE VALVE": 2,
+  "DM SALOON REMOVE/REFIT BRAKE CYLINDER SALOON GAUGES": 1,
+  "DM CAR REMOVE/REFIT CLOSED LOOP ANALOGUE UNIT (CLAU) - DM/UNDM CAR": 1,
+  "DM CAR REMOVE/REFIT PNEUMATIC BRAKE DRIVER": 1,
+  "DM CAR REMOVE/REFIT ¾\" GANGED VENTED COCKS (BCIC/PBIC)": 2,
+  "DM CAR REMOVE/REFIT ENCODER UNIT": 2,
+  "DM UNDERFRAME REMOVE/REFIT WSP DUMP VALVE": 1,
+  "DM CAR REMOVE/REFIT WHISTLE - TYPE 3C (ENHANCED)": 1,
+  "DM CAR REMOVE/REFIT 5/3 WHISTLE SPOOL VALVE DM": 1,
+  "DM CAR REMOVE/REFIT WHISTLE CONTROL LEVER VALVE DM DRIVER'S SIDE/INSTRUCTOR SIDE (X 2)": 2,
+  "DM CAR REMOVE/REFIT WHISTLE-OPERATED PRESSURE SWITCH DM": 1,
+  "DM CAR REMOVE/REFIT TRACTION SUPPLY PRESSURE REGULATOR": 1,
+  "DM CAR REMOVE/REFIT DOOR AIR SUPPLY PRESSURE REGULATOR (SUPPLIED WITH O-RINGS)": 1,
+  "DM CAR REMOVE/REFIT LOW MAIN LINE PRESSURE SWITCH": 1,
+  "DM CAR REMOVE/REFIT COUPLING-TEST POINT-QUICK RELEASE": 1,
+  "DM CAR REMOVE/REFIT MAINLINE CAB GAUGE": 1,
+  "DM CAR REMOVE/REFIT PRESSURE GAUGE (DOOR/TRACTION SUPP)": 1,
+  "DM CAR REMOVE/REFIT AIR FILTER WITH AUTOMATIC DRAIN": 1,
+  "DM CAR REMOVE/REFIT BSR CHECK VALVE (SUPPLIED WITH O-RINGS)": 1,
+  "DM CAR REMOVE/REFIT MAINLINE PRESSURE SWITCH EP TEST VALVE": 1,
+  "DM CAR REMOVE/REFIT ½\" CHECK VALVE (SHOEGEAR AND LINEBREAKER AUX), SUPPLIED WITH O-RINGS": 1,
+  "DM CAR REMOVE/REFIT ½\" CHECK VALVE (SHOEGEAR MANUAL CONTROL VALVE), SUPPLIED WITH O-RINGS": 1,
+  "DM CAR REMOVE/REFIT ½\" CHECK VALVE (EXTERNAL AIR SUPPLY), SUPPLIED WITH O-RINGS": 1,
+  "DM CAR REMOVE/REFIT DOUBLE CHECK VALVE": 1,
+  "DM CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / WHISTLE)": 1,
+  "DM CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (FLANGE MOUNTED)": 1,
+  "DM CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE A": 1,
+  "DM CAR REMOVE/REFIT SLEET BRUSH CONTROL VALVE": 1,
+  "DM CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE D": 1,
+  "DM CAR REMOVE/REFIT CURRENT BALANCE DETECTOR RELAY (CBR)": 1,
+  "DM - CAR REMOVE/REFIT RHEOSTATIC BRAKE RESISTOR FAN ASSEMBLY": 2,
+  "DM - CAR REMOVE/REFIT REVERSE VOLTAGE RELAY FUSE": 3,
+  "DM - CAR REMOVE/REFIT SHOE VOLTAGE RELAY FUSE 1 & 2 (SVRF 1 & 2)": 4,
+  "DM CAR REMOVE/REFIT 5/3 WHISTLE CONTROL LEVER VALVE DM NON DRIVER'S SIDE": 2,
+  "DM CAR REMOVE/REFIT AUTOCOUPLER, DRAWGEAR, RADIAL SUPPORT BAR, LEFT AND RIGHT HAND CONTACT BOXES": 4,
+  "DM CAR REMOVE/REFIT SEMI PERMANENT COUPLER BAR AND DRAWGEAR INTERMEDIATE A": 4,
+  "DM CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY": 2,
+  "DM CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE": 2,
+  "DM CAR REMOVE/REFIT LINE CURRENT MONITORING DEVICE": 2,
+  "DM CAB REMOVE/REFIT CAB DESK HEATER": 1,
+  "DM CAB REMOVE/REFIT CAB REFRIGERATION UNIT (CHILLER MODULE)": 2,
+  "DM CAB REMOVE/REFIT CAB AIR HANDLING UNIT (AHU)": 2,
+  "DM CAR REMOVE/REFIT BRAKE SUPPLY RESERVOIR": 2,
+  "DM CAR REMOVE/REFIT COUPLER HOSE / SEMI-PERM COUPLER HOSE": 2,
+  "DM UNDERFRAME REMOVE/REFIT DM COUPLER HOSES": 1,
+  "DM CAR REMOVE/REFIT 20 KHZ DISTRIBUTION PANEL": 1,
+  "DM CAR REMOVE/REFIT POWER SUPPLY UNIT ISOLATION SWITCH": 1,
+  "DM CAR REMOVE/REFIT SCREENWASH STAINLESS PIPE ASSY": 1,
+  "DM CAR REMOVE/REFIT WASHER NOZZLE LH AND RH": 1,
+  "DM CAR REMOVE/REFIT AUXILIARY ISOLATION SWITCH": 2,
+  "DM - CAR REMOVE/REFIT AUXILIARY SUPPLY ISOLATION TRANSFORMER": 2,
+  "DM - CAR REMOVE/REFIT FILTER VOLTAGE MONITORING DEVICES VMD1, FVMD2, FVMD1, ALVMD.": 1,
+  "DM - CAR REMOVE/REFIT CAPACITOR PANEL ASSEMBLY": 2,
+  "DM - SHED SUPPLY FUSE": 2,
+  "DM - REMOVE AND REFIT CURRENT MONITORING DEVICES (CMDA, CMDB, CMDC)": 2,
+  "DM  - REMOVE/REFIT SALOON MODULAR SEATING - CATCH PLATE, GAS STRUT, SEAL, PINS, SPACE COVER AND INSULATION BLANKET": 4,
+  "DM - CAR REPLACE CAB BACK WALL FASTNERS": 2,
+  "DM - REMOVE/REFIT AUXLIARY LINK CURRENT MONITORING DEVICE (ALCMD)": 2,
+  "DM - WIPER MOTOR": 2,
+  "DM  - REMOVE/REFIT SALOON MODULAR SEATING - SEAT LOCK SPRING AND PIN SPRINGS": 2,
+  "DM CAR REMOVE/REFIT TMCU - TRAIN MANAGEMENT CONTROL UNIT": 1,
+  "DM CAR REMOVE/REFIT CAB AUDIO VISUAL UNIT (CAVU)": 1,
+  "DM CAR REMOVE/REFIT SALOON AUDIO VISUAL UNIT (SAVU)": 1,
+  "DM CAR REMOVE/REFIT TMCC - TRAIN MANAGEMENT CAR CONTROLLER": 1,
+  "DM CAR REMOVE/REFIT TMWD - TRAIN MANAGEMENT WALL DISPLAY": 1,
+  "DM  REMOVE/REFIT TMRT - TRAIN MANAGEMENT REMOTE TERMINAL": 1,
+  "DM - CAR REMOVE/REFIT SIGNAL RESISTOR PANEL": 1,
+  "DM - CAR REMOVE/REFIT EQUIPMENT GOVERNOR": 2,
+  "DM - CAR REMOVE/REFIT TRAIN OPERATOR DISPLAY-CONTROL UNIT (TOD-CU)": 1,
+  "DM - CAR REMOVE/REFIT MASTER CONTROL SWITCH (MCS)": 1,
+  "DM - CAR REMOVE/REFIT OUTPUT FILTER PANELS": 2,
+  "DM - REMOVE/REFITCAR SCREEN WASH TANK & PUMP": 3,
+  "DM - ASK CAPAICTOR REPLACE": 2,
+  "DM - CAR REMOVE/REFIT AUXLIARY SUPPLY CONTACTOR (ASC)": 2,
+  "DM - CHECK MAINLINE PRESSURE SWITCH EP TEST VALVE, LOW MAINLINE PRESSURE SWITCH, DRIVER SIDE WHISTLE CONTROL LEVER AND DOUBLE CHECK VALVE FITTINGS AND REPLACE ALL UNITS THAT HAVE THE UNAPPROVED PNEUMATIC BLUE SEAL FITTED WITH THE NORGREN SEALS": 2,
+  "TRIALER  UNDERFRAME REMOVE/REFIT CONTACTORS SA80": 2,
+  "TRAILER  SALOON REMOVE/REFIT EMERGENCY LIGHT INVERTERS": 1,
+  "TRAILER  SALOON REMOVE/REFIT MCBS": 1,
+  "TRAILER SALOON REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "TRAILER CAR REMOVE BOGIE A": 4,
+  "TRAILER CAR REFIT BOGIE A": 4,
+  "TRAILER CAR REMOVE BOGIE D": 4,
+  "TRAILER CAR REFIT BOGIE D": 4,
+  "TRAILER CAR REMOVE/REFIT WSP CONTROL UNIT": 1,
+  "TRAILER CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE A": 2,
+  "TRAILER CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE D": 2,
+  "TRAILER - AXLE-END SPEED PROBE HOUSING (WSP)": 1,
+  "TRAILER CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 1 (ALL CARS)": 1,
+  "TRAILER CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 2 (FOR TR CARS)": 1,
+  "TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / AUTO DRAIN / WHISTLE)": 1,
+  "TRAILER CAR REMOVE/REFIT VARIABLE LOAD VALVE - T/DIT CAR": 1,
+  "TRAILER CAR REMOVE/REFIT BRAKE RELEASE VALVE": 2,
+  "TRAILER CAR REMOVE/REFIT BRAKE CYLINDER SALOON GAUGES": 1,
+  "TRAILER CAR REMOVE/REFIT CLOSED LOOP ANALOGUE UNIT (CLAU) - T/ DIT CAR": 1,
+  "TRAILER CAR REMOVE/REFIT PNEUMATIC BRAKE DRIVER": 1,
+  "TRAILER CAR REMOVE/REFIT ¾\" VENTED BALL VALVE (BCIC)": 1,
+  "TRAILER CAR REMOVE/REFIT WSP DUMP VALVE - TRAILER": 1,
+  "TRAILER CAR REMOVE/REFIT DOOR AIR SUPPLY PRESSURE REGULATOR (SUPPLIED WITH O-RINGS)": 1,
+  "TRAILER CAR REMOVE/REFIT COMPRESSOR DELIVERY HOSE": 2,
+  "TRAILER CAR REMOVE/REFIT 1/2\" SILENCER (EXHAUST)": 1,
+  "TRAILER CAR REMOVE/REFIT LOW COMPRESSOR DELIVERY PRESSURE SWITCH": 1,
+  "TRAILER CAR REMOVE/REFIT COMPRESSOR GOVERNOR": 1,
+  "TRAILER CAR REMOVE/REFIT COUPLING-TEST POINT-QUICK RELEASE": 1,
+  "TRAILER CAR REMOVE/REFIT PRESSURE GAUGE (DOOR/TRACTION SUPP)": 1,
+  "TRAILER CAR REMOVE/REFIT AIR FILTER WITH AUTOMATIC DRAIN": 1,
+  "TRAILER CAR REMOVE/REFIT MAINLINE RESERVOIR SAFETY VALVE": 1,
+  "TRAILER CAR REMOVE/REFIT COMPRESSOR NON-RETURN VALVE": 1,
+  "TRAILER CAR REMOVE/REFIT BSR CHECK VALVE (SUPPLIED WITH O-RINGS)": 1,
+  "TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (FLANGE MOUNTED)": 1,
+  "TRAILER CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE A": 1,
+  "TRAILER CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE D": 1,
+  "TRAILER CAR REMOVE/REFIT FUSES (PERMANENT LOAD PROTECTION, BARE ESSENTIALS PROTECTION, EMERGENCY 1 PROTECTION & EMERGENCY 2 PROTECTION)": 2,
+  "TRAILER CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE A END": 2,
+  "DO NOT FILL - DUPLICATE - TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI PERMANENT COUPLER BAR": 4,
+  "TRAILER CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE D END": 2,
+  "DO NOT FILL - DUPLICATE - TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE D END & SEMI-PERMANENT COUPLER BAR": 4,
+  "TRAILER CAR REMOVE/REFIT MAIN RESERVOIR": 2,
+  "TRAILER CAR REMOVE/REFIT BRAKE SUPPLY RESERVOIR": 2,
+  "TRAILER CAR REMOVE/REFIT UNDM COUPLER HOSE / SEMI-PERM COUPLER HOSE": 2,
+  "TRAILER CAR REMOVE/REFIT AUTOMATIC DRAIN VALVE (G 1/2\")": 1,
+  "TRAILER CAR REMOVE/REFIT 3-WAY BALL VALVE": 1,
+  "TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (MAIN RESERVOIR MANUAL DRAIN VALVE)": 1,
+  "TRAILER REMOVE/REFIT BATTERY SUPPLY CAPACITORS (BSK 1, 2, 3)  NON ELECTROLYTIC CAPACITOR": 2,
+  "TRAILER CAR REMOVE/REFIT BATTERY RECTIFIER CAPACITOR (BRK)  NON ELECTROLYTIC CAPACITOR": 2,
+  "TRAILER - CAR - REMOVE/REFIT BATTERY ISOLATION CONTACTORS N(C-BIC1 AND C-BIC 2)": 2,
+  "TRAILER -  REMOVE/REFIT BATTERY CURRENT MONITORING DEVICE": 2,
+  "TRAILER -REMOVE/REFIT SALOON MODULAR SEATING - CATCH PLATE, GAS STRUT, SEAL, PINS, SPACE COVER AND INSULATION BLANKET": 4,
+  "TRAILER - REMOVE/REFIT SALOON MODULAR SEATING - SEAT LOCK SPRING AND PIN SPRINGS": 2,
+  "TRAILER CAR REMOVE/REFIT SALOON AUDIO VISUAL UNIT (SAVU)": 1,
+  "TRAILER CAR REMOVE/REFIT 5 X TRAIN MANAGEMENT REMOTE TERMINALS.": 1,
+  "TRAILER - REPLACE 5 X RELAY TIMERS WITH 5 X ARTECHE RELAYS, INCULDING WIRING MODIFICATION.": 1,
+  "UNDM UNDERFRAME REMOVE/REFIT CONTACTOR  SA80": 2,
+  "UNDM UNDERFRAME REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "UNDM SALOON  REMOVE/REFIT EMERGENCY LIGHT INVERTERS": 1,
+  "UNDM SALOON REMOVE/REFIT SIEMENS RELAYS": 1,
+  "UNDM SALOON REMOVE/REFIT MCBS": 1,
+  "UNDM SALOON REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "UNDM - TRACTION CUT-OUT SWITCH": 1,
+  "UNDM - SHED SUPPLY SWITCH AND RECEPTACLE ASSEMBLY": 1,
+  "UNDM - CURRENT LINK FILTER INDUCTOR (AUXILIARY LINK FILTER INDUCTOR)": 2,
+  "UNDM - REMOVE/REFIT CURRENT LIMITING INDUCTOR": 2,
+  "UNDM -CAR REMOVE/REFIT LINE FILTER INDUCTOR": 1,
+  "UNDM - CONTROL SUPPLY RESISTOR (CSZ)": 2,
+  "UNDM CAR REMOVE BOGIE A": 4,
+  "UNDM CAR REFIT BOGIE A": 4,
+  "UNDM CAR REMOVE BOGIE D": 4,
+  "UNDM CAR REFIT BOGIE D": 4,
+  "UNDM CAR REMOVE/REFIT LINE BREAKER CONTACTOR 1 AND 3": 2,
+  "UNDM CAR REMOVE/REFIT LINE BREAKER CONTACTOR 2 AND 4": 2,
+  "UNDM CAR REMOVE/REFIT FILTER HARD CROWBAR THYRISTOR ASSEMBLY": 1,
+  "UNDM CAR REMOVE/REFIT POWER SUPPLY UNIT": 2,
+  "UNDM CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE A": 2,
+  "UNDM CAR REMOVE/REFIT PARKING BRAKE DROP HOSE BOGIE A": 2,
+  "UNDM CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE D": 2,
+  "UNDM CAR REMOVE/REFIT PARKING BRAKE DROP HOSE BOGIE D": 2,
+  "UNDM - REMOVE/REFIT LINE CONTACTOR AIR SUPPLY": 2,
+  "UNDM - WHEEL SPEED PROBE - MOTOR": 1,
+  "UNDM CAR REMOVE/REFIT UNCOUPLER SWITCH UNDM": 2,
+  "UNDM CAR REMOVE/REFIT PROPULSION INVERTER MODULE": 2,
+  "UNDM CAR REMOVE/REFIT RHEOSTATIC BRAKE MODULE": 2,
+  "UNDM CAR REMOVE/REFIT LINE FILTER CAPACITOR TRAY 6 CAP - KF": 2,
+  "UNDM CAR REMOVE/REFIT LINE FILTER CAPACITOR TRAY 10 CAP": 2,
+  "UNDM CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 1 (FOR ALL CARS)": 1,
+  "UNDM CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 2 (FOR DM/UNDM)": 1,
+  "UNDM CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / WHISTLE)": 1,
+  "UNDM CAR REMOVE/REFIT VARIABLE LOAD VALVE - UNDM CAR": 1,
+  "UNDM CAR REMOVE/REFIT BRAKE RELEASE VALVE": 2,
+  "UNDM CAR REMOVE/REFIT BRAKE CYLINDER SALOON GAUGES": 1,
+  "UNDM CAR REMOVE/REFIT CLOSED LOOP ANALOGUE UNIT (CLAU) - UNDM CAR": 1,
+  "UNDM CAR REMOVE/REFIT PNEUMATIC BRAKE DRIVER": 1,
+  "UNDM CAR REMOVE/REFIT ¾\" GANGED VENTED COCKS (BCIC/PBIC)": 2,
+  "UNDM CAR REMOVE/REFIT WSP DUMP VALVE - MOTOR": 1,
+  "UNDM CAR REMOVE/REFIT WHISTLE - TYPE 3C (ENHANCED)": 1,
+  "UNDM CAR REMOVE/REFIT WHISTLE CONTROL VALVE & BUTTON ASSY UNDM": 2,
+  "UNDM CAR REMOVE/REFIT TRACTION SUPPLY PRESSURE REGULATOR": 1,
+  "UNDM CAR REMOVE/REFIT DOOR AIR SUPPLY PRESSURE REGULATOR (SUPPLIED WITH O-RINGS)": 1,
+  "UNDM CAR REMOVE/REFIT LOW MAIN LINE PRESSURE SWITCH": 1,
+  "UNDM CAR REMOVE/REFIT COUPLING-TEST POINT-QUICK RELEASE": 1,
+  "UNDM CAR REMOVE/REFIT MAINLINE CAB GAUGE": 1,
+  "UNDM CAR REMOVE/REFIT PRESSURE GAUGE (DOOR/TRACTION SUPP)": 1,
+  "UNDM CAR REMOVE/REFIT AIR FILTER WITH AUTOMATIC DRAIN": 1,
+  "UNDM CAR REMOVE/REFIT BSR CHECK VALVE (SUPPLIED WITH O-RINGS)": 1,
+  "UNDM CAR REMOVE/REFIT ½\" CHECK VALVE (SHOEGEAR AND LINEBREAKER AUX), SUPPLIED WITH O-RINGS": 1,
+  "UNDM CAR REMOVE/REFIT ½\" CHECK VALVE (SHOEGEAR MANUAL CONTROL VALVE), SUPPLIED WITH O-RINGS": 1,
+  "UNDM CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (FLANGE MOUNTED)": 1,
+  "UNDM CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE A": 1,
+  "UNDM CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE D": 1,
+  "UNDM CAR REMOVE/REFIT RELAY PANEL 3": 1,
+  "UNDM CAR REMOVE/REFIT CURRENT BALANCE DETECTOR RELAY (CBR)": 1,
+  "UNDM -CAR REMOVE/REFIT RHEOSTATIC BRAKE RESISTOR FAN ASSEMBLY": 2,
+  "UNDM -  CAR REMOVE/REFIT REVERSE VOLTAGE RELAY FUSE": 3,
+  "UNDM -  CAR REMOVE/REFIT SHOE VOLTAGE RELAY FUSE 1 & 2 (SVRF 1 & 2)": 4,
+  "UNDM CAR REMOVE/REFIT AUTOCOUPLER UNDM RH 3-CAR, DRAWGEAR, RADIAL SUPPORT BAR, CONTACT BOX ASSY L/H & CONTACT BOX ASSY R/H": 4,
+  "UNDM CAR REMOVE/REFIT SEMI PERMANENT COUPLER BAR & DRAWGEAR INTERMEDIATE A": 4,
+  "UNDM CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY UNDM": 2,
+  "UNDM CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE": 2,
+  "UNDM CAR REMOVE/REFIT LINE CURRENT MONITORING DEVICE": 2,
+  "UNDM CAR REMOVE/REFIT BRAKE SUPPLY RESERVOIR": 2,
+  "UNDM CAR REMOVE/REFIT UNCOUPLER CYLINDER HOSE UNDM": 1,
+  "UNDM CAR REMOVE/REFIT UNDM COUPLER HOSE & SEMI-PERM COUPLER HOSE": 2,
+  "UNDM CAR REMOVE/REFIT 20 KHZ DISTRIBUTION PANEL": 1,
+  "UNDM CAR REMOVE/REFIT POWER SUPPLY UNIT ISOLATION SWITCH": 1,
+  "UNDM - CAR REMOVE/REFIT CAPACITOR PANEL ASSEMBLY": 2,
+  "UNDM - SHED SUPPLY FUSE": 2,
+  "UNDM - WIPER MOTOR": 2,
+  "DM - CAR REMOVE/REFIT FILTER VOLTAGE MONITORING DEVICES VMD1, FVMD1": 1,
+  "UNDM - REMOVE/REFIT SALOON MODULAR SEATING - CATCH PLATE, GAS STRUT, SEAL, PINS, SPACE COVER AND INSULATION BLANKET": 4,
+  "UNDM  -  REMOVE/REFIT SALOON MODULAR SEATING - SEAT LOCK SPRING AND PIN SPRINGS": 2,
+  "UNDM  REMOVE/REFIT TMRT - TRAIN MANAGEMENT REMOTE TERMINAL": 1,
+  "UNDM CAR REMOVE/REFIT TMCC - TRAIN MANAGEMENT CAR CONTROLLER": 1,
+  "UNDM CAR REMOVE/REFIT SALOON AUDIO VISUAL UNIT (SAVU)": 1,
+  "UNDM -CAR REMOVE/REFIT SIGNAL RESISTOR PANEL": 1,
+  "UNDM -CAR REMOVE/REFIT EQUIPMENT GOVERNOR": 2,
+  "UNDM -  AUXILIARY ISOLATION CONTACTOR (AIC)": 2,
+  "UNDM - CAR REMOVE/REFIT OUTPUT FILTER PANELS": 2,
+  "UNDM - CHECK WHISTLE, CONTROL LEVER VALVE AND LOW MAINLINE PRESSURE SWITCH FITTINGS AND REPLACE ALL UNITS THAT HAVE THE UNAPPROVED PNEUMATIC BLUE SEAL FITTED WITH THE NORGREN SEALS": 2,
+  "UNDM CAR REMOVE/REFIT AUTOCOUPLER UNDM RH 4-CAR, DRAWGEAR, RADIAL SUPPORT BAR, CONTACT BOX ASSY L/H & CONTACT BOX ASSY R/H": 4,
+  "SPECIAL TRAILER  SALOON REMOVE/REFIT EMERGENCY LIGHT INVERTERS": 1,
+  "SPECIAL TRAILER  SALOON REMOVE/REFIT MCBS": 1,
+  "SPECIAL TRAILER SALOON REMOVE/REFIT MORS SMITT RELAYS": 1,
+  "SPECIAL TRAILER CAR REMOVE BOGIE A": 4,
+  "SPECIAL TRAILER CAR REFIT BOGIE A": 4,
+  "SPECIAL TRAILER CAR REMOVE BOGIE D": 4,
+  "SPECIAL TRAILER CAR REFIT BOGIE D": 4,
+  "SPECIAL TRAILER CAR REMOVE/REFIT WSP CONTROL UNIT": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE A": 2,
+  "SPECIAL TRAILER CAR REMOVE/REFIT SERVICE BRAKE DROP HOSE BOGIE D": 2,
+  "SPECIAL TRAILER - AXLE-END SPEED PROBE HOUSING (WSP)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 1 (FOR ALL CARS)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 2 (FOR TR CARS)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / WHISTLE)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT VARIABLE LOAD VALVE - T/DIT CAR": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BRAKE RELEASE VALVE": 2,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BRAKE CYLINDER SALOON GAUGES": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT CLOSED LOOP ANALOGUE UNIT (CLAU) - T/ DIT CAR": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT PNEUMATIC BRAKE DRIVER": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT ¾\" VENTED BALL VALVE (BCIC)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT WSP DUMP VALVE - TRAILER": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT DOOR AIR SUPPLY PRESSURE REGULATOR (SUPPLIED WITH O-RINGS)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT COUPLING-TEST POINT-QUICK RELEASE": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT PRESSURE GAUGE (DOOR/TRACTION SUPP)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT AIR FILTER WITH AUTOMATIC DRAIN": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BSR CHECK VALVE (SUPPLIED WITH O-RINGS)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (FLANGE MOUNTED)": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE A": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT AIR FLOW CUT-OFF VALVE BOGIE D": 1,
+  "SPECIAL TRAILER CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE A END": 2,
+  "SPECIAL TRAILER CAR REMOVE/REFIT ANTI-CLIMB BUFFER ASSEMBLY INTERMEDIATE D END": 2,
+  "DO NOT FILL - DUPLICATE -SPECIAL TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE D END & SEMI-PERMANENT COUPLER BAR": 4,
+  "DO NOT FILL - DUPLICATE - SPECIAL TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI-PERMANENT COUPLER BAR": 4,
+  "SPECIAL TRAILER CAR REMOVE/REFIT BRAKE SUPPLY RESERVOIR": 2,
+  "SPECIAL TRAILER CAR REMOVE/REFIT UNDM & TC CARS COUPLER HOSES/SEMI-PERM HOSES": 2,
+  "SPECIAL TRAILER - REMOVE/REFIT SALOON MODULAR SEATING - CATCH PLATE, GAS STRUT, SEAL, PINS, SPACE COVER AND INSULATION BLANKET": 4,
+  "SPECIAL TRAILER - REMOVE/REFIT SALOON MODULAR SEATING - SEAT LOCK SPRING AND PIN SPRINGS": 2,
+  "SPECIAL TRAILER CAR REMOVE/REFIT SALOON AUDIO VISUAL UNIT (SAVU)": 1,
+  "TRAILER CAR REMOVE/REFIT 4 X TRAIN MANAGEMENT REMOTE TERMINALS.": 1,
+  "TRAILER CAR REMOVE/REFIT BRAKE CYLINDER PRESSURE SWITCH 1 (FOR ALL CARS)": 1,
+  "TRAILER CAR REMOVE/REFIT ½\u00a0VENTED BALL VALVE (VLCV / SYSTEM DRAIN / WHISTLE)": 1,
+  "DO NOT FILL - DUPLICATE - TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI-PERMANENT COUPLER BAR": 4,
+  "TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE D END & SEMI-PERMANENT COUPLER BAR": 4,
+  "TRAILER CAR REMOVE/REFIT BATTERY SUPPLY CAPACITORS (BSK 1, 2, 3)  NON ELECTROLYTIC CAPACITOR": 2,
+  "TRAILER - REMOVE/REFIT BATTERY ISOLATION CONTACTORS N(C-BIC1 AND C-BIC 2)": 2,
+  "TRAILER - REMOVE/REFIT SALOON MODULAR SEATING - CATCH PLATE, GAS STRUT, SEAL, PINS, SPACE COVER AND INSULATION BLANKET": 4,
+  "TRAILER -  REMOVE/REFIT SALOON MODULAR SEATING - SEAT LOCK SPRING AND PIN SPRINGS": 2,
+  "UNDM CAR REMOVE/REFIT CURRENT BALANCE RELAY PANEL": 1,
+  "TRAILER - REPLACE DE-ICING HOSE POSITIVE (TO NOZZLE)": 2,
+  "TRAILER - REPLACE DE-ICING HOSE NEGATIVE (TO NOZZLE)": 2,
+  "TRAILER - REPLACE DE-ICING HOSE 1 FROM TANK": 2,
+  "TRAILER - REPLACE DE-ICING HOSE 2 FROM TANK": 2,
+  "TRAILER - REPLACE DE-ICING HOSE 3 FROM TANK": 2,
+  "TRAILER - REPLACE - DE-ICING ANTI-VIBRATION MOUNTS": 2,
+  "TRAILER - REPLACE DE-ICER TANK": 2,
+  "DM CAR REMOVE/REFIT WHISTLE CONTROL LEVER VALVE (DM DRIVER'S SIDE)": 2,
+  "DM - ASK CAPACITOR REPLACE": 2,
+  "DM CAR REMOVE/REFIT WHISTLE CONTROL LEVER VALVE DM DRIVER'S SIDE)": 2,
+  "DM - CAR REMOVE/REFIT MASTER CONTROL SWITCH (MSC)": 1,
+  "DM CAR REMOVE/REFIT SEMI PERMANENT COUPLER BAR AND DRAWGEAR INTERMEDIATE D": 4,
+  "TRAILER - WSP SPEED PROBE ASSEMBLY REPLACEMEND FOR NEW MODIFIED DESIGN BRACKET.": 1,
+  "TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI PERMANENT COUPLER BAR": 4,
+  "SPECIAL TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE D END & SEMI-PERMANENT COUPLER BAR": 4,
+  "SPECIAL TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI-PERMANENT COUPLER BAR": 4,
+  "TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI-PERMANENT COUPLER BAR": 4,
+  "DO NOT FILL - DUPLICATE  -TRAILER CAR REMOVE/REFIT DRAWGEAR INTERMEDIATE A END & SEMI PERMANENT COUPLER BAR": 4,
+  "DM CAR REMOVE/REFIT WHISTLE CONTROL LEVER VALVE DM DRIVER'S SIDE.": 2,
+  "DM CAR REMOVE/REFIT WHISTLE CONTROL LEVER VALVE DM INSTRUCTOR  SIDE": 1
+}
+
+// Helper function to get number of people for a task
+const getTaskPeopleCount = (taskName) => {
+  if (!taskName) return 1
+  const upperName = taskName.toString().trim().toUpperCase()
+  return TASK_PEOPLE_MAP[upperName] || 1
+}
+
 function EfficiencyDashboard() {
   const [loading, setLoading] = useState(true)
   const [loadingProgress, setLoadingProgress] = useState('')
@@ -107,7 +456,8 @@ function EfficiencyDashboard() {
   const [completionsByDay, setCompletionsByDay] = useState([])
   const [selectedTimeRange, setSelectedTimeRange] = useState('all')
   const [trains, setTrains] = useState([])
-  const [selectedTrain, setSelectedTrain] = useState('all')
+  const [selectedTrains, setSelectedTrains] = useState([]) // Array for multi-select
+  const [lastClickedTrain, setLastClickedTrain] = useState(null) // For shift+click range selection
   const [sortBy, setSortBy] = useState('train') // 'train' or 'completion'
   const [showTeamRoster, setShowTeamRoster] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -163,7 +513,7 @@ function EfficiencyDashboard() {
     if (cachedData) {
       loadDashboardDataWithCache(cachedData)
     }
-  }, [selectedTimeRange, selectedTrain])
+  }, [selectedTimeRange, selectedTrains])
 
   const loadTrains = async () => {
     try {
@@ -222,21 +572,22 @@ function EfficiencyDashboard() {
       const allCars = cache.cars || []
       const allCompletions = cache.completions || []
 
-      // Filter cars by selected train
+      // Filter cars by selected trains (multi-select)
       let filteredCarIds = []
       let filteredCars = allCars
 
-      if (selectedTrain !== 'all') {
-        const trainNum = parseInt(selectedTrain)
-        filteredCars = allCars.filter(car => car.train_units?.train_number === trainNum)
+      if (selectedTrains.length > 0) {
+        // Filter by multiple selected trains
+        filteredCars = allCars.filter(car => selectedTrains.includes(car.train_units?.train_number))
         filteredCarIds = filteredCars.map(c => c.id)
       } else {
+        // No filter = all trains
         filteredCarIds = allCars.map(c => c.id)
       }
 
-      // Filter completions by selected train
+      // Filter completions by selected trains
       let completions = allCompletions
-      if (selectedTrain !== 'all') {
+      if (selectedTrains.length > 0) {
         completions = allCompletions.filter(c => filteredCarIds.includes(c.car_id))
       }
 
@@ -310,11 +661,15 @@ function EfficiencyDashboard() {
         }
         teamStats[teamKey].total++
         const taskMinutes = c.total_minutes || 0
-        teamStats[teamKey].totalMinutes += taskMinutes
+        // Multiply by number of people required for this task
+        // A 7-hour job with 2 people = 14 man-hours of work
+        const numPeople = getTaskPeopleCount(c.task_name)
+        const adjustedMinutes = taskMinutes * numPeople
+        teamStats[teamKey].totalMinutes += adjustedMinutes
 
         if (c.status === 'completed') {
           teamStats[teamKey].completed++
-          teamStats[teamKey].completedMinutes += taskMinutes
+          teamStats[teamKey].completedMinutes += adjustedMinutes
 
           // Track person-days for efficiency calculation
           // Each unique (person, date) combination = 8 hours available
@@ -463,21 +818,20 @@ function EfficiencyDashboard() {
         console.error('Could not cache data to IndexedDB:', e)
       }
 
-      // Filter cars by selected train
+      // Filter cars by selected trains (multi-select)
       let filteredCarIds = []
       let filteredCars = allCars || []
 
-      if (selectedTrain !== 'all' && allCars) {
-        const trainNum = parseInt(selectedTrain)
-        filteredCars = allCars.filter(car => car.train_units?.train_number === trainNum)
+      if (selectedTrains.length > 0 && allCars) {
+        filteredCars = allCars.filter(car => selectedTrains.includes(car.train_units?.train_number))
         filteredCarIds = filteredCars.map(c => c.id)
       } else if (allCars) {
         filteredCarIds = allCars.map(c => c.id)
       }
 
-      // Filter completions by selected train
+      // Filter completions by selected trains
       let completions = allCompletions || []
-      if (selectedTrain !== 'all' && allCompletions) {
+      if (selectedTrains.length > 0 && allCompletions) {
         completions = allCompletions.filter(c => filteredCarIds.includes(c.car_id))
       }
 
@@ -491,6 +845,45 @@ function EfficiencyDashboard() {
   }
 
   const COLORS = ['#10B981', '#F59E0B', '#94a3b8']
+
+  // Handle train button click with shift and ctrl/cmd modifiers
+  const handleTrainClick = (trainNumber, event) => {
+    const isShiftClick = event.shiftKey
+    const isCtrlClick = event.ctrlKey || event.metaKey
+
+    if (isShiftClick && lastClickedTrain !== null) {
+      // Shift+click: select range from last clicked to current
+      const allTrainNumbers = trains.map(t => t.train_number).sort((a, b) => a - b)
+      const startIdx = allTrainNumbers.indexOf(lastClickedTrain)
+      const endIdx = allTrainNumbers.indexOf(trainNumber)
+      const [minIdx, maxIdx] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)]
+      const rangeTrains = allTrainNumbers.slice(minIdx, maxIdx + 1)
+
+      // Add range to existing selection (union)
+      const newSelection = [...new Set([...selectedTrains, ...rangeTrains])]
+      setSelectedTrains(newSelection)
+    } else if (isCtrlClick) {
+      // Ctrl/Cmd+click: toggle single train
+      if (selectedTrains.includes(trainNumber)) {
+        setSelectedTrains(selectedTrains.filter(t => t !== trainNumber))
+      } else {
+        setSelectedTrains([...selectedTrains, trainNumber])
+      }
+    } else {
+      // Regular click: toggle single train (or select if none selected)
+      if (selectedTrains.includes(trainNumber) && selectedTrains.length === 1) {
+        // Clicking the only selected train - deselect it (show all)
+        setSelectedTrains([])
+      } else if (selectedTrains.includes(trainNumber)) {
+        // Clicking a selected train with multiple selected - narrow to just this one
+        setSelectedTrains([trainNumber])
+      } else {
+        // Clicking an unselected train - select only this one
+        setSelectedTrains([trainNumber])
+      }
+    }
+    setLastClickedTrain(trainNumber)
+  }
 
   const pieData = [
     { name: 'Completed', value: stats.completedTasks, color: '#10B981' },
@@ -534,32 +927,15 @@ function EfficiencyDashboard() {
 
         {/* Train Filter Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Train Filter */}
           <Filter size={20} style={{ color: 'var(--text-muted)' }} />
-          <select
-            value={selectedTrain}
-            onChange={(e) => setSelectedTrain(e.target.value)}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-card)',
-              color: 'var(--text)',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              minWidth: '150px'
-            }}
-          >
-            <option value="all">All Trains (T01-T62)</option>
-            {trains.map(train => (
-              <option key={train.train_number} value={train.train_number}>
-                T{String(train.train_number).padStart(2, '0')}
-              </option>
-            ))}
-          </select>
-          {selectedTrain !== 'all' && (
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+            {selectedTrains.length === 0
+              ? 'All Trains'
+              : `${selectedTrains.length} train${selectedTrains.length > 1 ? 's' : ''} selected`}
+          </span>
+          {selectedTrains.length > 0 && (
             <button
-              onClick={() => setSelectedTrain('all')}
+              onClick={() => setSelectedTrains([])}
               style={{
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.5rem',
@@ -576,18 +952,74 @@ function EfficiencyDashboard() {
         </div>
       </div>
 
+      {/* Multi-Train Selection Grid */}
+      <div className="chart-container" style={{ marginBottom: '1.5rem' }}>
+        <div className="chart-header" style={{ marginBottom: '0.75rem' }}>
+          <h3 className="chart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Filter size={18} />
+            Select Trains
+            <span style={{ fontWeight: 'normal', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              (Click to select, Shift+click for range, Ctrl+click to add/remove)
+            </span>
+          </h3>
+        </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(50px, 1fr))',
+          gap: '0.375rem',
+          maxHeight: '150px',
+          overflowY: 'auto',
+          padding: '0.5rem'
+        }}>
+          {trains.map(train => {
+            const isSelected = selectedTrains.includes(train.train_number)
+            return (
+              <button
+                key={train.train_number}
+                onClick={(e) => handleTrainClick(train.train_number, e)}
+                style={{
+                  padding: '0.375rem 0.5rem',
+                  borderRadius: '0.375rem',
+                  border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  background: isSelected ? 'var(--primary)' : 'var(--bg)',
+                  color: isSelected ? 'white' : 'var(--text)',
+                  fontSize: '0.75rem',
+                  fontWeight: isSelected ? '600' : '400',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                T{String(train.train_number).padStart(2, '0')}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Filter indicator */}
-      {selectedTrain !== 'all' && (
+      {selectedTrains.length > 0 && (
         <div style={{
           background: 'var(--accent)',
           color: 'white',
           padding: '0.5rem 1rem',
           borderRadius: '0.5rem',
           marginBottom: '1rem',
-          display: 'inline-block',
-          fontSize: '0.875rem'
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.875rem',
+          flexWrap: 'wrap'
         }}>
-          Showing data for Train T{String(selectedTrain).padStart(2, '0')} only
+          <span>Showing data for:</span>
+          {selectedTrains.sort((a, b) => a - b).map(t => (
+            <span key={t} style={{
+              background: 'rgba(255,255,255,0.2)',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '0.25rem'
+            }}>
+              T{String(t).padStart(2, '0')}
+            </span>
+          ))}
         </div>
       )}
 
@@ -726,11 +1158,13 @@ function EfficiencyDashboard() {
       <div className="chart-container">
         <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <h3 className="chart-title">
-            {selectedTrain === 'all'
+            {selectedTrains.length === 0
               ? `Progress by Train (${unitProgress.length} trains)`
-              : `Progress - T${String(selectedTrain).padStart(2, '0')}`}
+              : selectedTrains.length === 1
+                ? `Progress - T${String(selectedTrains[0]).padStart(2, '0')}`
+                : `Progress - ${selectedTrains.length} Selected Trains`}
           </h3>
-          {selectedTrain === 'all' && (
+          {selectedTrains.length === 0 && (
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
                 onClick={() => setSortBy('train')}
@@ -769,7 +1203,7 @@ function EfficiencyDashboard() {
             </div>
           )}
         </div>
-        <ResponsiveContainer width="100%" height={selectedTrain === 'all' ? Math.max(800, sortedUnitProgress.length * 25) : 300}>
+        <ResponsiveContainer width="100%" height={selectedTrains.length === 0 ? Math.max(800, sortedUnitProgress.length * 25) : Math.max(300, sortedUnitProgress.length * 30)}>
           <BarChart data={sortedUnitProgress} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
             <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={12} />
@@ -923,9 +1357,11 @@ function EfficiencyDashboard() {
           </tbody>
         </table>
         <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          <strong>Efficiency Formula:</strong> Task Hours ÷ Available Hours (8h × Person-Days)
+          <strong>Efficiency Formula:</strong> (Task Hours × Number of People) ÷ Available Hours (8h × Person-Days)
           <br />
-          <em>Example: If AS works 3 days and completes 21 hours of tasks, efficiency = 21h ÷ (8h × 3) = 87.5%</em>
+          <em>Example: A 7h task requiring 2 people = 14 man-hours. If AS works 3 days on such tasks, efficiency = 14h ÷ (8h × 3) = 58.3%</em>
+          <br />
+          <em style={{ color: 'var(--accent)' }}>Note: Task hours are multiplied by number of operators required (from Excel column M) for accurate man-hour calculations.</em>
         </div>
       </div>
 
