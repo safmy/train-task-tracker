@@ -29,7 +29,8 @@ function TaskTracker() {
   // Filter states
   const [phaseFilter, setPhaseFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [taskTextFilter, setTaskTextFilter] = useState('') // Text/regex filter for tasks
+  const [taskTextFilter, setTaskTextFilter] = useState('') // Applied text/regex filter
+  const [taskTextFilterInput, setTaskTextFilterInput] = useState('') // Input field value (not yet applied)
   const [isTaskListCollapsed, setIsTaskListCollapsed] = useState(false)
   const [collapsedPhases, setCollapsedPhases] = useState({}) // Track which phases are collapsed
   const [isTrainSelectorCollapsed, setIsTrainSelectorCollapsed] = useState(false)
@@ -150,11 +151,12 @@ function TaskTracker() {
 
   useEffect(() => {
     if (viewAllTrains && trains.length > 0) {
+      console.log('Loading cars for all trains:', trains.length)
       loadCarsForMultipleTrains(trains)
     } else if (selectedTrains.length > 0) {
       loadCarsForMultipleTrains(selectedTrains)
     }
-  }, [selectedTrains, viewAllTrains, statusFilter])
+  }, [selectedTrains, viewAllTrains, statusFilter, trains])
 
   const loadData = async () => {
     setLoading(true)
@@ -210,13 +212,27 @@ function TaskTracker() {
       // Get all unit IDs
       const allUnitIds = trainList.flatMap(t => t.units.map(u => u.id))
 
-      // Fetch all cars with task completions for all trains
-      const { data: allCars } = await supabase
-        .from('cars')
-        .select('unit_id, task_completions(status)')
-        .in('unit_id', allUnitIds)
+      // Batch requests to avoid URL length limits (reduced to 20 to prevent 500 errors)
+      const BATCH_SIZE = 20
+      const batches = []
+      for (let i = 0; i < allUnitIds.length; i += BATCH_SIZE) {
+        batches.push(allUnitIds.slice(i, i + BATCH_SIZE))
+      }
 
-      if (allCars) {
+      // Fetch all batches in parallel
+      const batchResults = await Promise.all(
+        batches.map(batchIds =>
+          supabase
+            .from('cars')
+            .select('unit_id, task_completions(status)')
+            .in('unit_id', batchIds)
+        )
+      )
+
+      // Combine results
+      const allCars = batchResults.flatMap(result => result.data || [])
+
+      if (allCars.length > 0) {
         const stats = {}
         trainList.forEach(train => {
           const trainUnitIds = train.units.map(u => u.id)
@@ -306,13 +322,15 @@ function TaskTracker() {
     try {
       // Get all unit IDs for all selected trains
       const allUnitIds = trainList.flatMap(t => t.units.map(u => u.id))
+      console.log('Loading cars for unit IDs:', allUnitIds.length, 'units from', trainList.length, 'trains')
 
-      // Batch requests to avoid URL length limits (max ~50 IDs per request)
-      const BATCH_SIZE = 50
+      // Batch requests to avoid URL length limits (reduced to 20 to prevent 500 errors)
+      const BATCH_SIZE = 20
       const batches = []
       for (let i = 0; i < allUnitIds.length; i += BATCH_SIZE) {
         batches.push(allUnitIds.slice(i, i + BATCH_SIZE))
       }
+      console.log('Fetching in', batches.length, 'batches')
 
       // Fetch all batches in parallel
       const batchResults = await Promise.all(
@@ -324,8 +342,16 @@ function TaskTracker() {
         )
       )
 
+      // Check for errors in batch results
+      batchResults.forEach((result, idx) => {
+        if (result.error) {
+          console.error('Batch', idx, 'error:', result.error)
+        }
+      })
+
       // Combine results
       const carsData = batchResults.flatMap(result => result.data || [])
+      console.log('Loaded', carsData.length, 'cars total')
 
       if (carsData) {
         // Add train info to each car for display
@@ -364,6 +390,14 @@ function TaskTracker() {
         // Flatten all completions
         const allCompletions = sortedCars.flatMap(c => c.task_completions || [])
         setTaskCompletions(allCompletions)
+        console.log('Total tasks loaded:', allCompletions.length)
+
+        // Debug: show sample completed_by values
+        const tasksWithCompletedBy = allCompletions.filter(t => t.completed_by?.length > 0)
+        console.log('Tasks with completed_by:', tasksWithCompletedBy.length)
+        if (tasksWithCompletedBy.length > 0) {
+          console.log('Sample completed_by values:', tasksWithCompletedBy.slice(0, 5).map(t => ({ task: t.task_name?.slice(0, 30), by: t.completed_by })))
+        }
 
         // Auto-select car based on current filter
         if (sortedCars.length > 0) {
@@ -1003,7 +1037,7 @@ function TaskTracker() {
       )}
 
       {/* Visual Train */}
-      {selectedTrain && cars.length > 0 && (
+      {(selectedTrain || viewAllTrains) && cars.length > 0 && (
         <div className="train-visual">
           {/* Collapsible Header for Car Visual */}
           <div
@@ -1237,7 +1271,8 @@ function TaskTracker() {
 
                   const matchesTextFilter = (task) => {
                     if (!taskTextFilter) return true
-                    const searchText = `${task.task_name || ''} ${task.description || ''}`.toLowerCase()
+                    const completedByText = Array.isArray(task.completed_by) ? task.completed_by.join(' ') : ''
+                    const searchText = `${task.task_name || ''} ${task.description || ''} ${completedByText}`.toLowerCase()
                     if (textRegex) return textRegex.test(searchText)
                     return searchText.includes(taskTextFilter.toLowerCase())
                   }
@@ -1280,20 +1315,31 @@ function TaskTracker() {
               {/* Text/Regex Filter */}
               <input
                 type="text"
-                value={taskTextFilter}
-                onChange={(e) => setTaskTextFilter(e.target.value)}
+                value={taskTextFilterInput}
+                onChange={(e) => setTaskTextFilterInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setTaskTextFilter(taskTextFilterInput)
+                    console.log('Applying filter:', taskTextFilterInput)
+                  }
+                }}
                 onClick={(e) => e.stopPropagation()}
-                placeholder="Filter tasks (regex)..."
+                placeholder="Search tasks/users (Enter to apply)..."
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '0.5rem',
-                  border: '1px solid var(--border)',
+                  border: taskTextFilter ? '2px solid var(--primary)' : '1px solid var(--border)',
                   background: 'var(--bg-card)',
                   color: 'var(--text)',
                   fontSize: '0.875rem',
-                  minWidth: '180px'
+                  minWidth: '200px'
                 }}
               />
+              {taskTextFilter && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: '600' }}>
+                  Filtering: "{taskTextFilter}"
+                </span>
+              )}
 
               {/* Phase Filter */}
               <select
@@ -1337,9 +1383,9 @@ function TaskTracker() {
                 <option value="pending">Not Started</option>
               </select>
 
-              {(taskTextFilter || phaseFilter !== 'all' || statusFilter !== 'all') && (
+              {(taskTextFilter || taskTextFilterInput || phaseFilter !== 'all' || statusFilter !== 'all') && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setTaskTextFilter(''); setPhaseFilter('all'); setStatusFilter('all'); }}
+                  onClick={(e) => { e.stopPropagation(); setTaskTextFilter(''); setTaskTextFilterInput(''); setPhaseFilter('all'); setStatusFilter('all'); }}
                   style={{
                     padding: '0.25rem 0.5rem',
                     borderRadius: '0.375rem',
@@ -1415,12 +1461,24 @@ function TaskTracker() {
                   textRegex = null
                 }
 
+                // Debug: log source tasks count
+                if (taskTextFilter) {
+                  console.log('Filtering', sourceTasks.length, 'tasks with filter:', taskTextFilter)
+                  // Sample completed_by values
+                  const withCompletedBy = sourceTasks.filter(t => t.completed_by?.length > 0)
+                  console.log('Tasks with completed_by:', withCompletedBy.length)
+                  if (withCompletedBy.length > 0) {
+                    console.log('Sample completed_by:', withCompletedBy.slice(0, 3).map(t => t.completed_by))
+                  }
+                }
+
                 const allTasks = sourceTasks
                   .filter(task => statusFilter === 'all' || task.status === statusFilter)
                   .filter(task => phaseFilter === 'all' || (task.phase || 'No Phase') === phaseFilter)
                   .filter(task => {
                     if (!taskTextFilter) return true
-                    const searchText = `${task.task_name || ''} ${task.description || ''}`.toLowerCase()
+                    const completedByText = Array.isArray(task.completed_by) ? task.completed_by.join(' ') : ''
+                    const searchText = `${task.task_name || ''} ${task.description || ''} ${completedByText}`.toLowerCase()
                     if (textRegex) {
                       return textRegex.test(searchText)
                     }
